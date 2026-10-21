@@ -1,8 +1,0 @@
-.git
-.venv
-tests
-data
-*.parquet
-*.tar.gz
-.env*
-.streamlit/secrets.toml

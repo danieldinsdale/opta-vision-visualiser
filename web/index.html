@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'">
+<title>Opta Vision Visualiser</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<aside id="sidebar">
+  <img class="side-logo" src="assets/opta-ai-logo_white.png" alt="Opta AI">
+
+  <div id="mode-switch" class="segmented" role="tablist" aria-label="Data source" hidden>
+    <button type="button" id="mode-local" class="on" role="tab" aria-selected="true">Local files</button>
+    <button type="button" id="mode-sdapi" role="tab" aria-selected="false">SDAPI</button>
+  </div>
+
+  <!-- Local files -->
+  <section id="local-panel">
+    <h2 class="sec">EPTS tracking data</h2>
+    <label class="file">Bundle (.tar.gz / .zip)<input type="file" id="f-bundle" accept=".gz,.tgz,.tar,.zip"></label>
+    <p class="hint">or the two files separately:</p>
+    <label class="file">EPTS raw data (.txt)<input type="file" id="f-txt" accept=".txt"></label>
+    <label class="file">EPTS format specification (.xml)<input type="file" id="f-xml" accept=".xml"></label>
+    <details>
+      <summary>Events and context (optional)</summary>
+      <p class="hint">JSON feeds exactly as returned by the API (or the extracted list for phases/runs).</p>
+      <label class="file">Events (remoteevents)<input type="file" id="f-events" accept=".json"></label>
+      <label class="file">Match stats (lineup, kit colours)<input type="file" id="f-stats" accept=".json"></label>
+      <label class="file">Phases of play<input type="file" id="f-phases" accept=".json"></label>
+      <label class="file">Player runs<input type="file" id="f-runs" accept=".json"></label>
+    </details>
+    <button type="button" id="load-btn" class="primary" disabled>Load data</button>
+  </section>
+
+  <!-- SDAPI: only shown when the optional local server is running (see README) -->
+  <section id="sdapi-panel" hidden>
+    <h2 class="sec">Match</h2>
+    <label class="text">Opta Game UUID<input type="text" id="game-id" maxlength="40" autocomplete="off" spellcheck="false"></label>
+    <h2 class="sec">Feeds</h2>
+    <ul id="feeds" class="feeds"></ul>
+    <hr>
+    <label class="check"><input type="checkbox" id="use-cache" checked> Store files locally and reuse them</label>
+    <label class="check"><input type="checkbox" id="refresh"> Re-download even if cached</label>
+    <p class="hint" id="cache-note"></p>
+    <button type="button" id="delete-cache" class="ghost" hidden>Delete cached files for this game</button>
+    <button type="button" id="fetch-btn" class="primary">Fetch from SDAPI</button>
+  </section>
+
+  <hr>
+  <details id="vod">
+    <summary>VOD video</summary>
+    <p class="hint">No video service is bundled. Paste a direct https video URL (MP4 or HLS .m3u8) per period, or add your own provider in <code>vod-provider.js</code>.</p>
+    <label class="text">Period 1 video URL<input type="url" id="vod-1" autocomplete="off"></label>
+    <label class="text">Period 2 video URL<input type="url" id="vod-2" autocomplete="off"></label>
+  </details>
+
+  <p id="status" role="status" aria-live="polite"></p>
+  <ul id="warnings"></ul>
+</aside>
+
+<main id="stage">
+  <div id="empty">
+    <p id="empty-text">Choose an EPTS dataset in the sidebar, then click <strong>Load data</strong>.</p>
+    <p class="hint">Everything runs in your browser. Files are not uploaded anywhere.</p>
+  </div>
+  <iframe id="frame" title="Pitch animation" hidden></iframe>
+</main>
+<script type="module" src="main.js"></script>
+</body>
+</html>
