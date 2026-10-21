@@ -36,6 +36,10 @@
 
   <!-- SDAPI: only shown when the optional local server is running (see README) -->
   <section id="sdapi-panel" hidden>
+    <h2 class="sec">Credentials</h2>
+    <label class="text">SDAPI key<input type="password" id="api-key" maxlength="128" autocomplete="off" spellcheck="false"></label>
+    <label class="text">SDAPI referral (optional)<input type="text" id="api-referral" maxlength="255" autocomplete="off" spellcheck="false" placeholder="only if HTTP 403"></label>
+    <p class="hint">Kept in this tab only. Sent to the local server, never stored.</p>
     <h2 class="sec">Match</h2>
     <label class="text">Opta Game UUID<input type="text" id="game-id" maxlength="40" autocomplete="off" spellcheck="false"></label>
     <h2 class="sec">Feeds</h2>

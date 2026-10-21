@@ -19,15 +19,9 @@ You can also serve the `web` folder with any static web server, or publish it on
 
 ### SDAPI (optional, needs the local server)
 
-Put your outlet key in `.streamlit/secrets.toml` (an empty, git-ignored file is provided; `secrets.toml.example` shows the format), then `npm start`. The SDAPI option appears in the sidebar:
+Run `npm start` in `web/`. The sidebar then offers **Local files** or **SDAPI**. For SDAPI, enter three values: your **SDAPI key**, an optional **SDAPI referral** (only if the API answers HTTP 403) and the **Opta Game UUID**, then click **Fetch from SDAPI**.
 
-```toml
-API_OUTLET_KEY = "<your outlet key>"
-# only if the API answers HTTP 403 (some accounts need a Referer header):
-API_REFERER = "www.performfeeds.com"
-```
-
-Credentials are read from this file only, not from environment variables. The server holds the key and calls the API; the page talks to it on `127.0.0.1`, so **the key never reaches the browser**. On a static host there is no server, so the SDAPI option does not appear. If a request fails, the message shows the URL with the key masked as `<API_OUTLET_KEY>`.
+The key and referral are held in the page only (nothing is saved to disk, browser storage or the repository, and they are not read from files or environment variables). The page sends them to the local server on `127.0.0.1`, which calls the API; they are never written to logs. On a static host there is no server, so the SDAPI option does not appear. If a request fails, the message shows the URL with the key masked as `<API_OUTLET_KEY>`.
 
 Server safety: binds to `127.0.0.1` only, checks `Host` and `Origin` (DNS-rebinding and cross-site protection), serves an allow-list of files, HTTPS-only outbound requests with no redirects, validated game ids and download hosts, size caps.
 

@@ -3,14 +3,15 @@
 //
 //   npm start                       # from the web/ folder -> http://127.0.0.1:8765
 //
-// Credentials come from ../.streamlit/secrets.toml only (never from environment variables). The server binds to 127.0.0.1, checks
+// The SDAPI key and referral are typed into the page and sent to this server per request; they are never stored,
+// logged or written to disk. The server binds to 127.0.0.1, checks
 // the Host and Origin headers (DNS-rebinding / cross-site request protection), serves only an
 // allow-list of static files and exposes four small JSON/binary endpoints under /api.
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FILE_KEYS, FeedCache, SdapiClient, SdapiError, checkReferer, fetchMatch, parseSecrets, validateGameId } from './sdapi.mjs';
+import { FILE_KEYS, FeedCache, SdapiClient, SdapiError, checkReferer, fetchMatch, validateApiKey, validateGameId } from './sdapi.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = path.resolve(here, '..');
@@ -19,17 +20,6 @@ const HOST = '127.0.0.1';
 const PORT = Number(process.env.OPTA_VISUALISER_PORT || 8765);
 const CACHE_DIR = path.resolve(process.env.OPTA_VISUALISER_CACHE_DIR || path.join(REPO_ROOT, 'data', 'sdapi_cache'));
 const MAX_BODY = 4096;
-
-// ── Credentials (secrets.toml only) ───────────────────────────────────────────
-// OPTA_VISUALISER_SECRETS_FILE only changes *where* the file is (the tests point it at an empty one).
-const SECRETS_FILE = process.env.OPTA_VISUALISER_SECRETS_FILE || path.join(REPO_ROOT, '.streamlit', 'secrets.toml');
-let client = null;
-try {
-  const secrets = parseSecrets(await fs.readFile(SECRETS_FILE, 'utf8'));
-  if (secrets.API_OUTLET_KEY) client = new SdapiClient(secrets.API_OUTLET_KEY, checkReferer(secrets.API_REFERER));
-} catch (e) {
-  if (e.code !== 'ENOENT') console.warn(`Could not read secrets.toml: ${e instanceof SdapiError ? e.message : e.code || e.name}`);
-}
 
 const cache = new FeedCache(CACHE_DIR);
 let lastFetch = null;   // {gameId, files}: kept in memory when "store locally" is off (single user)
@@ -68,7 +58,7 @@ const originOk = (req) => { const o = req.headers.origin; return o === `http://$
 async function api(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/config') {
     const shown = CACHE_DIR.startsWith(REPO_ROOT + path.sep) ? path.relative(REPO_ROOT, CACHE_DIR) : 'custom folder';
-    return sendJson(res, 200, { sdapi: !!client, cacheDir: shown });
+    return sendJson(res, 200, { sdapi: true, cacheDir: shown });
   }
   if (req.method === 'GET' && url.pathname.startsWith('/api/file/')) {
     const [, , , id, name] = url.pathname.split('/');
@@ -87,6 +77,8 @@ async function api(req, res, url) {
       const gameId = validateGameId(body.gameId);
       const want = Object.fromEntries(['events', 'matchstats', 'phases', 'runs'].map((k) => [k, !!body.want?.[k]]));
       const useCache = !!body.useCache;
+      // Key and referral are optional: without a key only cached files can be served.
+      const client = body.apiKey ? new SdapiClient(validateApiKey(body.apiKey), checkReferer(body.referral)) : null;
       const { files, statuses } = await fetchMatch(client, gameId, want, useCache ? cache : null, !!body.refresh);
       lastFetch = files ? { gameId, files } : null;
       return sendJson(res, 200, {
@@ -131,5 +123,4 @@ const server = http.createServer(async (req, res) => {
 server.requestTimeout = 0;           // large downloads from the local server can take a while
 server.listen(PORT, HOST, () => {
   console.log(`Opta Vision Visualiser: http://${HOST}:${PORT}`);
-  console.log(client ? 'SDAPI: enabled (key read from .streamlit/secrets.toml)' : 'SDAPI: off (add API_OUTLET_KEY to .streamlit/secrets.toml to enable it)');
 });

@@ -1780,7 +1780,6 @@ function drawEvent(fi) {
 function updateMeta(fi) {
   const period  = D.meta.period[fi];
   const timeSec = D.meta.time[fi];
-  const inPlay  = D.meta.inPlay[fi];
   const impliedFrame = D.meta.impliedFrame ? D.meta.impliedFrame[fi] : 0;
   const periodOffset = D.meta.periodFrameOffsets ? (D.meta.periodFrameOffsets[period] || 0) : 0;
   // Convert from 100Hz to 25Hz space: divide by 4
@@ -1789,8 +1788,7 @@ function updateMeta(fi) {
   const mm = String(Math.floor(timeSec / 60) + (period - 1) * 45).padStart(2, '0');
   const ss = String(Math.floor(timeSec % 60)).padStart(2, '0');
   const ms = Math.round(timeSec * 1000);
-  const status = inPlay ? '&#9654; Live' : '&#9634; Dead ball';
-  metaDiv.innerHTML = 'P' + period + ' &nbsp;|&nbsp; ' + mm + ':' + ss + ' &nbsp;|&nbsp; MS:' + ms + ' | FC:' + displayFrame + ' &nbsp;|&nbsp; ' + status;
+  metaDiv.innerHTML = 'P' + period + ' &nbsp;|&nbsp; ' + mm + ':' + ss + ' &nbsp;|&nbsp; MS:' + ms + ' | FC:' + displayFrame;
 
   // Sync time inputs (without triggering their change handlers)
   updatingTimeInputs = true;

@@ -1,5 +1,5 @@
 // The optional local server: same-origin only, allow-listed files, validated ids, cache served
-// without any network access (no outlet key is configured in tests, so SDAPI itself is off).
+// without any network access (tests send no key, so SDAPI itself is never called).
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
@@ -7,7 +7,6 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { parseSecrets } from '../server/sdapi.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const GAME = 'abcdefghij1234';
@@ -22,7 +21,7 @@ before(async () => {
   copyFileSync(join(here, 'fixtures', 'spec.xml'), join(cacheDir, GAME, 'epts_format_specification.xml'));
   copyFileSync(join(here, 'fixtures', 'events.json'), join(cacheDir, GAME, 'remoteevents.json'));
   proc = spawn(process.execPath, [join(here, '..', 'server', 'server.mjs')], {
-    env: { ...process.env, OPTA_VISUALISER_PORT: String(port), OPTA_VISUALISER_CACHE_DIR: cacheDir, OPTA_VISUALISER_SECRETS_FILE: join(cacheDir, 'no-secrets.toml') }, stdio: ['ignore', 'pipe', 'inherit'],
+    env: { ...process.env, OPTA_VISUALISER_PORT: String(port), OPTA_VISUALISER_CACHE_DIR: cacheDir }, stdio: ['ignore', 'pipe', 'inherit'],
   });
   await new Promise((resolve) => proc.stdout.on('data', (d) => String(d).includes('http://') && resolve()));
 });
@@ -36,7 +35,7 @@ test('serves the page and only allow-listed files', async () => {
   assert.equal((await fetch(`${base}/`)).status, 200);
   assert.equal((await fetch(`${base}/animation/frame.html`)).status, 200);
   assert.equal((await fetch(`${base}/vendor/three.min.js`)).status, 200);
-  for (const hidden of ['/server/server.mjs', '/package.json', '/test/fixtures/raw.txt', '/..%2f..%2f.streamlit/secrets.toml', '/lib/../server/sdapi.mjs']) {
+  for (const hidden of ['/server/server.mjs', '/package.json', '/test/fixtures/raw.txt', '/..%2f..%2f.gitignore', '/lib/../server/sdapi.mjs']) {
     assert.equal((await fetch(base + hidden)).status, 404, hidden);
   }
   const r = await fetch(`${base}/`);
@@ -44,9 +43,9 @@ test('serves the page and only allow-listed files', async () => {
   assert.equal(r.headers.get('referrer-policy'), 'no-referrer');
 });
 
-test('config reports SDAPI off without a key and never exposes secrets', async () => {
+test('config never exposes anything beyond the cache folder', async () => {
   const cfg = await (await fetch(`${base}/api/config`)).json();
-  assert.equal(cfg.sdapi, false);
+  assert.equal(cfg.sdapi, true);
   assert.deepEqual(Object.keys(cfg).sort(), ['cacheDir', 'sdapi']);
 });
 
@@ -89,8 +88,11 @@ test('delete removes the cached files', async () => {
   assert.equal(res.statuses[0].state, 'failed');
 });
 
-test('secrets.toml parsing reads quoted values and ignores comments', () => {
-  const s = parseSecrets('# note\nAPI_OUTLET_KEY = "abc123"  # trailing\nAPI_REFERER=\'www.example.com\'\nOTHER = 5\n');
-  assert.deepEqual(s, { API_OUTLET_KEY: 'abc123', API_REFERER: 'www.example.com' });
-  assert.deepEqual(parseSecrets(''), {});
+test('key and referral are validated before any request is made', async () => {
+  for (const apiKey of ['short', 'has space in it', 'a/b/../c1234567', 'x'.repeat(200)]) {
+    const r = await post('/api/fetch', { gameId: GAME, apiKey });
+    assert.equal(r.status, 400, apiKey);
+    assert.ok(!JSON.stringify(await r.json()).includes(apiKey) || apiKey.length < 20);   // never echoed back
+  }
+  assert.equal((await post('/api/fetch', { gameId: GAME, apiKey: 'validkey12345', referral: 'bad\r\nX: 1' })).status, 400);
 });

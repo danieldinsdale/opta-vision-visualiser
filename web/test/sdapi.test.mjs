@@ -4,7 +4,7 @@ import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, test } from 'node:test';
-import { FeedCache, SdapiClient, SdapiError, checkReferer, fetchMatch, normaliseDownloadUrl, validateGameId } from '../server/sdapi.mjs';
+import { FeedCache, SdapiClient, SdapiError, checkReferer, fetchMatch, normaliseDownloadUrl, validateApiKey, validateGameId } from '../server/sdapi.mjs';
 
 const GAME = 'abcdefghij1234';
 const realFetch = globalThis.fetch;
@@ -17,6 +17,8 @@ test('game ids and referers are validated', () => {
   assert.equal(checkReferer(' www.example.com '), 'www.example.com');
   assert.throws(() => checkReferer('bad\r\nX-Evil: 1'), SdapiError);
   assert.throws(() => new SdapiClient(''), SdapiError);
+  assert.equal(validateApiKey(' abcdEFGH1234 '), 'abcdEFGH1234');
+  for (const bad of ['', 'short', 'a b c d e f g h', 'abc/../defgh12', null]) assert.throws(() => validateApiKey(bad), SdapiError);
 });
 
 test('download links: http and protocol-relative are upgraded, everything else refused', () => {

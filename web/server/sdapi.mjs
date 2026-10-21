@@ -30,19 +30,16 @@ export function validateGameId(gameId) {
   return id;
 }
 
-/** Minimal TOML reader for the two string keys we need (KEY = "value" lines; # comments). */
-export function parseSecrets(text) {
-  const out = {};
-  for (const line of text.split(/\r?\n/)) {
-    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)')\s*(?:#.*)?$/.exec(line);
-    if (m) out[m[1]] = (m[2] !== undefined ? m[2].replace(/\\(["\\])/g, '$1') : m[3]).trim();
-  }
-  return out;
+/** The outlet key is placed in a URL path, so accept only URL-safe characters (no slashes, spaces or control characters). */
+export function validateApiKey(value) {
+  const k = String(value ?? '').trim();
+  if (!/^[A-Za-z0-9._~-]{8,128}$/.test(k)) throw new SdapiError('SDAPI key is missing or has an unexpected format');
+  return k;
 }
 
 export function checkReferer(value) {
   const v = (value || '').trim();
-  if (/[\r\n\0]/.test(v) || v.length > 255) throw new SdapiError('API_REFERER contains invalid characters or is too long');
+  if (/[\r\n\0]/.test(v) || v.length > 255) throw new SdapiError('SDAPI referral contains invalid characters or is too long');
   return v;
 }
 
@@ -99,7 +96,7 @@ async function boundedGet(url, headers, shown, what) {
 
 export class SdapiClient {
   constructor(outletKey, referer = '') {
-    if (!outletKey) throw new SdapiError('No SDAPI outlet key configured (set API_OUTLET_KEY in .streamlit/secrets.toml)');
+    if (!outletKey) throw new SdapiError('No SDAPI key provided');
     this.key = outletKey;
     this.headers = { Accept: 'application/json', ...(referer ? { Referer: referer } : {}) };
   }

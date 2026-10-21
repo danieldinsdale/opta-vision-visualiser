@@ -139,10 +139,11 @@ async function api(path, body) {
 async function fetchFromSdapi() {
   const gameId = $('game-id').value.trim();
   if (!gameId) { setStatus('Enter an Opta Game UUID first.', true); return; }
+  if (!$('api-key').value.trim() && !$('use-cache').checked) { setStatus('Enter your SDAPI key first.', true); return; }
   const want = Object.fromEntries([...document.querySelectorAll('#feeds input')].filter((i) => !i.disabled).map((i) => [i.dataset.key, i.checked]));
   try {
     setStatus('Fetching from SDAPI...');
-    const res = await (await api('api/fetch', { gameId, want, useCache: $('use-cache').checked, refresh: $('refresh').checked })).json();
+    const res = await (await api('api/fetch', { gameId, apiKey: $('api-key').value.trim(), referral: $('api-referral').value.trim(), want, useCache: $('use-cache').checked, refresh: $('refresh').checked })).json();
     feedStatus = { gameId, statuses: res.statuses };
     renderFeeds();
     $('delete-cache').hidden = !(res.cached && $('use-cache').checked);
@@ -161,7 +162,7 @@ function setMode(sdapi) {
   els.modeLocal.classList.toggle('on', !sdapi); els.modeSdapi.classList.toggle('on', sdapi);
   els.modeLocal.setAttribute('aria-selected', String(!sdapi)); els.modeSdapi.setAttribute('aria-selected', String(sdapi));
   els.emptyText.textContent = sdapi
-    ? 'Enter an Opta Game UUID in the sidebar and click Fetch from SDAPI.'
+    ? 'Enter your SDAPI key and an Opta Game UUID in the sidebar, then click Fetch from SDAPI.'
     : 'Choose an EPTS dataset in the sidebar, then click Load data.';
 }
 
@@ -172,7 +173,6 @@ async function initSdapi() {
     if (!res.ok || !(res.headers.get('content-type') || '').includes('json')) return;   // static hosting: no server
     config = await res.json();
   } catch { return; }
-  if (!config.sdapi) return;
   els.modeSwitch.hidden = false;
   $('cache-note').textContent = `Cache folder: ${config.cacheDir}`;
   renderFeeds();
