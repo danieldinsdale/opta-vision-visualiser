@@ -15,19 +15,13 @@ npm start        # http://127.0.0.1:8765
 
 Open the page, choose an EPTS dataset in the sidebar and click **Load data**.
 
-You can also serve the `web` folder with any static web server, or publish it on GitHub Pages (see below). Files are parsed in a Web Worker in your browser and **never uploaded**.
+You can also serve the `web` folder with any static web server. Files are parsed in a Web Worker in your browser and **never uploaded**.
 
 ### SDAPI (optional, needs the local server)
 
 Run `npm start` in `web/`. The sidebar then offers **Local files** or **SDAPI**. For SDAPI, enter three values: your **SDAPI key**, an optional **SDAPI referral** (only if the API answers HTTP 403) and the **Opta Game UUID**, then click **Fetch from SDAPI**.
 
 The key and referral are held in the page only (nothing is saved to disk, browser storage or the repository, and they are not read from files or environment variables). The page sends them to the local server on `127.0.0.1`, which calls the API; they are never written to logs. On a static host there is no server, so the SDAPI option does not appear. If a request fails, the message shows the URL with the key masked as `<API_OUTLET_KEY>`.
-
-Server safety: binds to `127.0.0.1` only, checks `Host` and `Origin` (DNS-rebinding and cross-site protection), serves an allow-list of files, HTTPS-only outbound requests with no redirects, validated game ids and download hosts, size caps.
-
-### Hosting on GitHub Pages
-
-`.github/workflows/pages.yml` tests and publishes the public files in `web/`. One-off setup: repository **Settings > Pages > Source: GitHub Actions**. The hosted page works with local files only.
 
 ## Input files
 
@@ -56,27 +50,6 @@ Cached files are match and player data: treat them under your own data-protectio
 ## VOD plugin
 
 No video service is bundled. Out of the box, the **VOD video** panel lets you paste a direct `https` MP4 or HLS (`.m3u8`) URL per period; the animation syncs the video to the current frame with a manual offset control. To integrate your own service, implement `getVodUrls` in [`web/vod-provider.js`](web/vod-provider.js). URLs are validated (https only, no embedded credentials) before reaching the `<video>` element. Keep credentials server-side.
-
-## Project layout
-
-```
-web/index.html, style.css, main.js, worker.js   the page
-web/lib/                                        parsers (EPTS, events, feeds, lineup, payload) - run in browser and Node
-web/animation/                                  the pitch animation (canvas + optional 3D), shown in an iframe
-web/server/                                     optional local server for SDAPI
-web/vendor/                                     vendored three.js, gif.js, hls.js (see its README)
-web/test/                                       tests and synthetic fixtures
-```
-
-## Development
-
-```bash
-cd web
-npm install      # dev dependency only: jsdom, used by the UI tests
-npm test         # parsers, input safety, direction of play, SDAPI/cache, server and UI
-```
-
-Tests use fully synthetic data (`web/test/fixtures`); no real match data is, or should be, committed to this repository.
 
 ## Credits
 
