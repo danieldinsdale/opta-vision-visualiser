@@ -12,6 +12,17 @@ const els = {
   localPanel: $('local-panel'), sdapiPanel: $('sdapi-panel'),
 };
 
+// Sidebar show/hide
+function setSidebar(open) {
+  document.body.classList.toggle('side-collapsed', !open);
+  $('side-open').hidden = open;
+  $('side-close').setAttribute('aria-expanded', String(open));
+  $('side-open').setAttribute('aria-expanded', String(open));
+  (open ? $('side-close') : $('side-open')).focus();
+}
+$('side-close').addEventListener('click', () => setSidebar(false));
+$('side-open').addEventListener('click', () => setSidebar(true));
+
 let busy = false;
 const setStatus = (text, isError = false) => { els.status.textContent = text; els.status.classList.toggle('error', isError); };
 const setWarnings = (list) => { els.warnings.replaceChildren(...list.map((w) => Object.assign(document.createElement('li'), { textContent: w }))); };

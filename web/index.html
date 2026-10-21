@@ -9,7 +9,10 @@
 </head>
 <body>
 <aside id="sidebar">
-  <img class="side-logo" src="assets/opta-ai-logo_white.png" alt="Opta AI">
+  <div class="side-head">
+    <img class="side-logo" src="assets/opta-ai-logo_white.png" alt="Opta AI">
+    <button type="button" id="side-close" class="icon-btn" aria-label="Hide sidebar" title="Hide sidebar" aria-controls="sidebar" aria-expanded="true">&#8249;</button>
+  </div>
 
   <div id="mode-switch" class="segmented" role="tablist" aria-label="Data source" hidden>
     <button type="button" id="mode-local" class="on" role="tab" aria-selected="true">Local files</button>
@@ -65,6 +68,7 @@
 </aside>
 
 <main id="stage">
+  <button type="button" id="side-open" class="icon-btn" aria-label="Show sidebar" title="Show sidebar" aria-controls="sidebar" aria-expanded="false" hidden>&#8250;</button>
   <div id="empty">
     <p id="empty-text">Choose an EPTS dataset in the sidebar, then click <strong>Load data</strong>.</p>
     <p class="hint">Everything runs in your browser. Files are not uploaded anywhere.</p>

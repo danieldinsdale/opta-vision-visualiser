@@ -128,3 +128,15 @@ test('with the local server: SDAPI panel, per-feed status, one-click fetch and s
   assert.equal($('delete-cache').hidden, false);
   assert.ok(seen.includes('api/file/abcdefghij1234/raw'));
 });
+
+test('sidebar can be hidden and shown again', async () => {
+  const window = await boot(notFound);
+  const $ = (id) => window.document.getElementById(id);
+  assert.equal($('side-open').hidden, true);
+  $('side-close').click();
+  assert.equal(window.document.body.classList.contains('side-collapsed'), true);
+  assert.equal($('side-open').hidden, false);
+  $('side-open').click();
+  assert.equal(window.document.body.classList.contains('side-collapsed'), false);
+  assert.equal($('side-open').hidden, true);
+});
