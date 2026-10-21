@@ -1,0 +1,18 @@
+[server]
+# EPTS raw data files are ~150 MB; allow headroom for several datasets.
+maxUploadSize = 600
+maxMessageSize = 600
+enableXsrfProtection = true
+enableCORS = true
+
+[browser]
+# No telemetry from the visualiser.
+gatherUsageStats = false
+
+[theme]
+base                     = "dark"
+primaryColor             = "#9E07AE"
+backgroundColor          = "#000000"
+secondaryBackgroundColor = "#0d0d0d"
+textColor                = "#f0f0f0"
+font                     = "sans serif"

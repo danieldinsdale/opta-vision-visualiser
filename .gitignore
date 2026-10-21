@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Secrets and local configuration - never commit
+.env
+.env.*
+.streamlit/secrets.toml
+*.pem
+*.key
+
+# Match data: never commit tracking, event or feed files (licensed / personal data)
+data/
+*_epts_raw_data.txt
+*_epts_format_specification.xml
+*.tar.gz
+*.parquet
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/

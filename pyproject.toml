@@ -1,0 +1,43 @@
+[project]
+name = "opta-vision-visualiser"
+version = "0.1.0"
+description = "Interactive visualiser for EPTS tracking data and Opta event feeds"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas>=2.2,<3",
+    "numpy>=1.26",
+    "pydantic>=2.0,<3",
+    "pyyaml>=6.0.1,<7",
+    "streamlit>=1.40,<2",
+    "requests>=2.32,<3",
+    "defusedxml>=0.7.1,<1",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/opta_vision_visualiser"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "S"]
+ignore = ["S101"]  # asserts are used in tests only
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "E501"]
+"app.py" = ["E501"]
+"src/opta_vision_visualiser/panels.py" = ["E701", "E501"]  # ported feed-conversion code
+"src/opta_vision_visualiser/viz.py" = ["E501"]
+"src/opta_vision_visualiser/loader.py" = ["E501"]
+
+[tool.uv]
+default-groups = ["dev"]
