@@ -46,10 +46,9 @@ async function boot(apiHandler) {
 const notFound = () => new Response('nope', { status: 404 });
 const json = (obj) => new Response(JSON.stringify(obj), { status: 200, headers: { 'content-type': 'application/json' } });
 
-test('static hosting: no SDAPI controls; files enable Load; payload reaches the frame', async () => {
+test('static hosting: files enable Load; payload reaches the frame', async () => {
   const window = await boot(notFound);
   const $ = (id) => window.document.getElementById(id);
-  assert.equal($('mode-switch').hidden, true);
   assert.equal($('load-btn').disabled, true);
   pick(window, 'f-txt', fakeFile('a_epts_raw_data.txt', fixture('raw.txt')));
   assert.equal($('load-btn').disabled, true);                       // needs the spec too
@@ -139,4 +138,24 @@ test('sidebar can be hidden and shown again', async () => {
   $('side-open').click();
   assert.equal(window.document.body.classList.contains('side-collapsed'), false);
   assert.equal($('side-open').hidden, true);
+});
+
+test('static hosting: SDAPI is offered, server-only controls are hidden, key is never stored', async () => {
+  const window = await boot(notFound);
+  const $ = (id) => window.document.getElementById(id);
+  assert.equal($('mode-switch').hidden, false);
+  for (const el of window.document.querySelectorAll('.server-only')) assert.equal(el.hidden, true);
+  $('mode-sdapi').click();
+  $('game-id').value = 'abcdefghij1234';
+  $('api-key').value = 'secretkey12345';
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => { calls.push(String(url)); throw new TypeError('Failed to fetch'); };   // as when CORS blocks the request
+  $('fetch-btn').click();
+  await until(() => $('status').textContent.includes('could not be fetched'));
+  globalThis.fetch = realFetch;
+  assert.ok(calls[0].startsWith('https://api.performfeeds.com/soccerdata/remotematchtrackingepts/secretkey12345/abcdefghij1234'));
+  assert.ok(!window.document.body.textContent.includes('secretkey12345'));
+  assert.ok(![...window.document.querySelectorAll('[title]')].some((e) => e.title.includes('secretkey12345')));   // masked in errors
+  assert.equal(window.localStorage.length, 0);
 });
