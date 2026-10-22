@@ -1,6 +1,7 @@
 // Page logic: choose files (or fetch via the optional local server), parse in a worker, hand the
 // payload to the animation frame. Everything runs in the browser; files are never uploaded.
 import { MAX_INPUT_BYTES } from './lib/limits.js';
+import { SdapiError, fetchMatchInBrowser } from './lib/sdapi-client.js';
 import { getVodUrls, validateStreamUrl } from './vod-provider.js';
 
 const $ = (id) => document.getElementById(id);
@@ -119,6 +120,7 @@ const FEEDS = [
   { key: 'runs', label: 'Player runs', on: false },
 ];
 const STATUS_NAMES = { epts: 'EPTS tracking', events: 'Events', matchstats: 'Lineup and kit colours', phases: 'Phases of play', runs: 'Player runs' };
+let serverMode = false;   // true: the local server proxies the API and caches; false: the browser calls the API directly
 let feedStatus = null;   // {gameId, statuses}
 
 function renderFeeds() {
@@ -150,22 +152,31 @@ async function api(path, body) {
 async function fetchFromSdapi() {
   const gameId = $('game-id').value.trim();
   if (!gameId) { setStatus('Enter an Opta Game UUID first.', true); return; }
-  if (!$('api-key').value.trim() && !$('use-cache').checked) { setStatus('Enter your SDAPI key first.', true); return; }
+  if (!$('api-key').value.trim() && !(serverMode && $('use-cache').checked)) { setStatus('Enter your SDAPI key first.', true); return; }
   const want = Object.fromEntries([...document.querySelectorAll('#feeds input')].filter((i) => !i.disabled).map((i) => [i.dataset.key, i.checked]));
   try {
     setStatus('Fetching from SDAPI...');
-    const res = await (await api('api/fetch', { gameId, apiKey: $('api-key').value.trim(), referral: $('api-referral').value.trim(), want, useCache: $('use-cache').checked, refresh: $('refresh').checked })).json();
-    feedStatus = { gameId, statuses: res.statuses };
-    renderFeeds();
-    $('delete-cache').hidden = !(res.cached && $('use-cache').checked);
-    if (!res.files.raw) { setStatus('EPTS tracking could not be fetched. Hover a red row for details.', true); return; }
     const inputs = {};
-    setStatus('Downloading from the local server...');
-    const get = async (name) => new Uint8Array(await (await api(`api/file/${encodeURIComponent(gameId)}/${name}`)).arrayBuffer());
-    inputs.txt = await get('raw'); inputs.xml = await get('spec');
-    for (const key of ['events', 'matchstats', 'phases', 'runs']) if (res.files[key]) inputs[key] = await get(key);
+    if (serverMode) {
+      const res = await (await api('api/fetch', { gameId, apiKey: $('api-key').value.trim(), referral: $('api-referral').value.trim(), want, useCache: $('use-cache').checked, refresh: $('refresh').checked })).json();
+      feedStatus = { gameId, statuses: res.statuses };
+      renderFeeds();
+      $('delete-cache').hidden = !(res.cached && $('use-cache').checked);
+      if (!res.files.raw) { setStatus('EPTS tracking could not be fetched. Hover a red row for details.', true); return; }
+      setStatus('Downloading from the local server...');
+      const get = async (name) => new Uint8Array(await (await api(`api/file/${encodeURIComponent(gameId)}/${name}`)).arrayBuffer());
+      inputs.txt = await get('raw'); inputs.xml = await get('spec');
+      for (const key of ['events', 'matchstats', 'phases', 'runs']) if (res.files[key]) inputs[key] = await get(key);
+    } else {
+      const res = await fetchMatchInBrowser($('api-key').value, gameId, want);   // direct from this page; nothing is stored
+      feedStatus = { gameId, statuses: res.statuses };
+      renderFeeds();
+      if (!res.files) { setStatus('EPTS tracking could not be fetched. Hover a red row for details.', true); return; }
+      inputs.txt = res.files.raw; inputs.xml = res.files.spec;
+      for (const key of ['events', 'matchstats', 'phases', 'runs']) if (res.files[key]) inputs[key] = res.files[key];
+    }
     await loadMatch(inputs);                      // one click: fetch and show
-  } catch (e) { setStatus(e.message, true); }
+  } catch (e) { setStatus(e instanceof SdapiError ? e.message : e.message, true); }
 }
 
 function setMode(sdapi) {
@@ -178,14 +189,18 @@ function setMode(sdapi) {
 }
 
 async function initSdapi() {
-  let config;
+  // With the local server: it proxies the API, adds the referral header and caches files.
+  // Without it (static hosting): the page calls the API directly; no cache and no referral header.
   try {
     const res = await fetch('api/config');
-    if (!res.ok || !(res.headers.get('content-type') || '').includes('json')) return;   // static hosting: no server
-    config = await res.json();
-  } catch { return; }
+    if (res.ok && (res.headers.get('content-type') || '').includes('json')) {
+      const config = await res.json();
+      serverMode = true;
+      $('cache-note').textContent = `Cache folder: ${config.cacheDir}`;
+    }
+  } catch { /* static hosting */ }
+  for (const el of document.querySelectorAll('.server-only')) el.hidden = !serverMode;
   els.modeSwitch.hidden = false;
-  $('cache-note').textContent = `Cache folder: ${config.cacheDir}`;
   renderFeeds();
   $('game-id').addEventListener('input', renderFeeds);
   els.modeLocal.addEventListener('click', () => setMode(false));

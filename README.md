@@ -17,11 +17,14 @@ Open the page, choose an EPTS dataset in the sidebar and click **Load data**.
 
 You can also serve the `web` folder with any static web server. Files are parsed in a Web Worker in your browser and **never uploaded**.
 
-### SDAPI (optional, needs the local server)
+### SDAPI (optional)
 
-Run `npm start` in `web/`. The sidebar then offers **Local files** or **SDAPI**. For SDAPI, enter three values: your **SDAPI key**, an optional **SDAPI referral** (only if the API answers HTTP 403) and the **Opta Game UUID**, then click **Fetch from SDAPI**.
+The SDAPI option is always offered. Enter your **SDAPI key**, the **Opta Game UUID** and click **Fetch from SDAPI**.
 
-The key and referral are held in the page only (nothing is saved to disk, browser storage or the repository, and they are not read from files or environment variables). The page sends them to the local server on `127.0.0.1`, which calls the API; they are never written to logs. On a static host there is no server, so the SDAPI option does not appear. If a request fails, the message shows the URL with the key masked as `<API_OUTLET_KEY>`.
+- **On GitHub Pages or any static host:** the page calls the API directly from your browser.
+- **With the local server** (`npm start` in `web/`, then open `http://127.0.0.1:8765`): the server calls the API, so it also offers the optional **SDAPI referral** (needed only if the API answers HTTP 403), a local cache and "re-download".
+
+In both modes the key is held in the page only: it is not saved to disk or browser storage, not read from files or environment variables, and never logged. Failed requests show the URL with the key masked as `<API_OUTLET_KEY>`. 
 
 ## Input files
 
