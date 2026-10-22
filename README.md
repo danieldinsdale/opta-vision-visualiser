@@ -17,16 +17,13 @@ Open the page, choose an EPTS dataset in the sidebar and click **Load data**.
 
 You can also serve the `web` folder with any static web server. Files are parsed in a Web Worker in your browser and **never uploaded**.
 
-### SDAPI (optional)
+### SDAPI (optional, needs local server)
 
-The SDAPI option is always offered. Enter your **SDAPI key**, the **Opta Game UUID** and click **Fetch from SDAPI**.
-
-- **On GitHub Pages or any static host:** the page calls the API directly from your browser.
-- **With the local server** (`npm start` in `web/`, then open `http://127.0.0.1:8765`): the server calls the API, so it also offers the optional **SDAPI referral** (needed only if the API answers HTTP 403), a local cache and "re-download".
-
-In both modes the key is held in the page only: it is not saved to disk or browser storage, not read from files or environment variables, and never logged. Failed requests show the URL with the key masked as `<API_OUTLET_KEY>`. 
+Run `npm start` in `web/` and open `http://127.0.0.1:8765`. The sidebar then offers **Local files** or **SDAPI**. For SDAPI, enter your **SDAPI key**, an optional **SDAPI referral** (only if the API answers HTTP 403) and the **Opta Game UUID**, then click **Fetch from SDAPI**.
 
 ## Input files
+
+Input files are listed below, with each optional file adding extra functionality to the visualiser.
 
 | Input | Required | Format |
 |-------|----------|--------|
@@ -35,10 +32,6 @@ In both modes the key is held in the page only: it is not saved to disk or brows
 | Match stats | No | `matchstats` JSON feed: team names, score, competition, kit colours, player names |
 | Phases of play | No | `remotephasesofplay` JSON feed (or the extracted `phase` list) |
 | Player runs | No | `remoteplayerruns` JSON feed (or the extracted `run` list) |
-
-The events feed gives every event from the acting team's point of view (each team attacks left-to-right). The page rotates events (and pressure positions) for teams attacking right-to-left, using the direction of play in the EPTS XML. Events in non-playing periods (pre- and post-match) are ignored.
-
-Pressure arrows come from the events feed. Without a match stats file, team names are generic and player names come from the events feed where available.
 
 ### Local cache (SDAPI)
 

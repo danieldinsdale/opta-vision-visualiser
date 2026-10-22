@@ -246,7 +246,7 @@ let is3D = false;
 
 // Motion tails state
 let showTails  = false;
-let tailLength = 200;
+let tailLength = 50;
 let overlayTextSize = 1.0;
 
 // In-view mode — cycles through 3 states:
@@ -2524,6 +2524,7 @@ colorPickB.value = D.colors['4'] || '#f5c518';
   const hs   = L['match_home_score'];
   const as_  = L['match_away_score'];
   const comp = L['match_comp'] || '';
+  const venue = L['match_venue'] || '';
   const date = L['match_date'] || '';
 
   // Build home/away text with score embedded in the same span (avoids flex whitespace collapse)
@@ -2534,6 +2535,7 @@ colorPickB.value = D.colors['4'] || '#f5c518';
            + '<span class="match-neutral">&nbsp;&nbsp;vs&nbsp;&nbsp;</span>'
            + '<span id="mt-away" class="match-team">' + awayText + '</span>';
   if (comp) html += '<span class="match-sep"> | </span><span class="match-neutral">' + comp + '</span>';
+  if (venue) html += '<span class="match-sep"> | </span><span class="match-neutral">' + venue + '</span>';
   if (date) html += '<span class="match-sep"> | </span><span class="match-neutral">' + date + '</span>';
 
   titleEl.innerHTML = html;
@@ -2581,7 +2583,7 @@ btnTails.addEventListener('click', () => {
 });
 
 tailLenInp.addEventListener('change', () => {
-  tailLength = Math.max(1, Math.min(500, parseInt(tailLenInp.value, 10) || 25));
+  tailLength = Math.max(1, Math.min(500, parseInt(tailLenInp.value, 10) || 50));
   tailLenInp.value = tailLength;
   render(currentFi);
 });

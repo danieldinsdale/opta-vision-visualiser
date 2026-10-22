@@ -92,7 +92,7 @@ export function buildLineup(meta, matchstats, events) {
       const group = pos === 'home' ? 1 : pos === 'away' ? 2 : 0;
       if (cid && group) {
         contestantGroup[cid] = group;
-        lookup[`teamname_${group}`] = c.shortName || c.name || '';
+        lookup[`teamname_${group}`] = c.name || c.shortName || '';
         lookup[`ctg_${cid}`] = String(group);
       }
     }
@@ -102,6 +102,8 @@ export function buildLineup(meta, matchstats, events) {
     lookup.match_away_score = pystr(total.away);
     const comp = info.competition || {};
     lookup.match_comp = comp.knownName || comp.name || '';
+    const venue = info.venue || {};
+    lookup.match_venue = venue.shortName || venue.longName || venue.name || '';
     lookup.match_date = pystr(info.date).replace(/Z+$/, '');
     for (const team of live.lineUp || []) {
       const group = contestantGroup[team.contestantId ?? ''] || 0;

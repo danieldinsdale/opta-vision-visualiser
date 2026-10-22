@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https:; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'">
 <title>Opta Vision Visualiser</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -30,9 +30,9 @@
       <summary>Events and context (optional)</summary>
       <p class="hint">JSON feeds exactly as returned by the API (or the extracted list for phases/runs).</p>
       <label class="file">Events (remoteevents)<input type="file" id="f-events" accept=".json"></label>
-      <label class="file">Match stats (lineup, kit colours)<input type="file" id="f-stats" accept=".json"></label>
-      <label class="file">Phases of play<input type="file" id="f-phases" accept=".json"></label>
-      <label class="file">Player runs<input type="file" id="f-runs" accept=".json"></label>
+      <label class="file">Match stats (matchstats)<input type="file" id="f-stats" accept=".json"></label>
+      <label class="file">Phases of play (remotephasesofplay)<input type="file" id="f-phases" accept=".json"></label>
+      <label class="file">Player runs (remoteplayerruns)<input type="file" id="f-runs" accept=".json"></label>
     </details>
     <button type="button" id="load-btn" class="primary" disabled>Load data</button>
   </section>
@@ -41,16 +41,16 @@
   <section id="sdapi-panel" hidden>
     <h2 class="sec">Credentials</h2>
     <label class="text">SDAPI key<input type="password" id="api-key" maxlength="128" autocomplete="new-password" spellcheck="false"></label>
-    <label class="text server-only">SDAPI referral (optional)<input type="text" id="api-referral" maxlength="255" autocomplete="off" spellcheck="false" placeholder="only if HTTP 403"></label>
-    <p class="hint">Kept in this tab only and never stored. It is sent only to the SDAPI (via the local server if one is running).</p>
+    <label class="text">SDAPI referral (optional)<input type="text" id="api-referral" maxlength="255" autocomplete="off" spellcheck="false" placeholder="only if HTTP 403"></label>
+    <p class="hint">Kept in this tab only. Sent to the local server, never stored.</p>
     <h2 class="sec">Match</h2>
     <label class="text">Opta Game UUID<input type="text" id="game-id" maxlength="40" autocomplete="off" spellcheck="false"></label>
     <h2 class="sec">Feeds</h2>
     <ul id="feeds" class="feeds"></ul>
     <hr>
-    <label class="check server-only"><input type="checkbox" id="use-cache" checked> Store files locally and reuse them</label>
-    <label class="check server-only"><input type="checkbox" id="refresh"> Re-download even if cached</label>
-    <p class="hint server-only" id="cache-note"></p>
+    <label class="check"><input type="checkbox" id="use-cache" checked> Store files locally and reuse them</label>
+    <label class="check"><input type="checkbox" id="refresh"> Re-download even if cached</label>
+    <p class="hint" id="cache-note"></p>
     <button type="button" id="delete-cache" class="ghost" hidden>Delete cached files for this game</button>
     <button type="button" id="fetch-btn" class="primary">Fetch from SDAPI</button>
   </section>
