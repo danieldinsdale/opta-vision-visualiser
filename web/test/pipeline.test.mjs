@@ -12,6 +12,7 @@ const tolerance = (p) => (/\.entities\[\d+\]\.s\.epts\.[xyz]\[/.test(p) ? 0.0101
 test('payload matches the Python implementation', async () => {
   const { payload } = await buildMatchPayload(inputs(), options());
   const expected = JSON.parse(fixture('expected_payload.json'));
+  expected.lineup.match_venue = '';   // added after the Python golden file was generated; the fixture feed has no venue
   assert.deepEqual(diff(JSON.parse(JSON.stringify(payload)), expected, '$', tolerance), []);
 });
 
@@ -43,4 +44,14 @@ test('events in pre- and post-match periods are ignored', async () => {
   const { payload } = await buildMatchPayload(inputs(), options());
   assert.ok(payload.events.every((e) => e.p === 1 || e.p === 2));
   assert.ok(payload.pressures.every((p) => p.p === 1 || p.p === 2));
+});
+
+test('venue name from matchstats is exposed for the title, after the competition', async () => {
+  const { buildLineup } = await import('../lib/feeds.js');
+  const { parseEptsMetadata } = await import('../lib/epts.js');
+  const meta = parseEptsMetadata(new TextDecoder().decode(fixture('spec.xml')));
+  const ms = JSON.parse(fixture('matchstats.json'));
+  assert.equal(buildLineup(meta, ms, []).match_venue, '');                       // feed without a venue
+  ms.matchInfo.venue = { shortName: 'Example Park', longName: 'Example Park Stadium' };
+  assert.equal(buildLineup(meta, ms, []).match_venue, 'Example Park');
 });
