@@ -1,14 +1,15 @@
 /* Opta Vision Visualiser - page shell. Flat neutral dark, one purple accent (see animation.css). */
 :root {
   --bg: #000; --s1: #0b0b0c; --s2: #141416; --s3: #1b1b1e; --s4: #26262a;
-  --tx: #e8e8ea; --mu: #8a8a92; --dim: #55555c; --ac: #9E07AE;
+  --tx: #e8e8ea; --mu: #8a8a92; --dim: #55555c; --ac: #3F1568;
+  --sans: 'Roboto', Calibri, -apple-system, 'Segoe UI', sans-serif;
   --ok: #5fd18a; --bad: #ff6b6b; --warn: #F06424; --line: #1b1b1e;
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
 body {
   display: flex; background: var(--bg); color: var(--tx);
-  font-family: 'Barlow', 'Calibri', -apple-system, 'Segoe UI', sans-serif; font-weight: 300; font-size: 14px;
+  font-family: var(--sans); font-weight: 400; font-size: 14px;
 }
 button, input, summary { font: inherit; color: inherit; }
 
@@ -29,7 +30,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
 code { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px; color: var(--mu); }
 
 .segmented { display: flex; background: var(--s2); border-radius: 8px; padding: 4px; margin-bottom: 4px; }
-.segmented button { flex: 1; padding: 9px 14px; border: 0; border-radius: 5px; background: none; color: var(--mu); cursor: pointer; white-space: nowrap; }
+.segmented button { font-size: 13px; flex: 1; padding: 9px 14px; border: 0; border-radius: 5px; background: none; color: var(--mu); cursor: pointer; white-space: nowrap; }
 .segmented button.on { background: var(--s4); color: #fff; }
 
 label.file, label.text { display: flex; flex-direction: column; gap: 5px; margin: 6px 0; color: var(--mu); font-size: 12.5px; }
@@ -46,7 +47,7 @@ summary { cursor: pointer; color: #b9b9c0; padding: 4px 0; }
 
 button.primary, button.ghost { width: 100%; margin-top: 10px; padding: 9px; border: 0; border-radius: 7px; cursor: pointer; font-weight: 600; letter-spacing: .02em; }
 button.primary { background: var(--ac); color: #fff; }
-button.primary:hover:not(:disabled) { background: #b30dc6; }
+button.primary:hover:not(:disabled) { filter: brightness(1.35); }
 button.ghost { background: var(--s2); color: #b9b9c0; font-weight: 400; }
 button.ghost:hover { background: var(--s3); color: #fff; }
 button:disabled { opacity: .4; cursor: not-allowed; }
@@ -56,7 +57,7 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 .feeds li.ok { color: var(--ok); font-weight: 600; }
 .feeds li.bad { color: var(--bad); font-weight: 600; }
 .feeds li.todo { color: var(--warn); }
-.feeds .tag { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--mu); }
+.feeds .tag { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 11px; font-weight: 400; color: var(--mu); }
 
 #status { margin-top: 12px; min-height: 1.4em; color: var(--mu); font-size: 12.5px; }
 #status.error { color: var(--bad); }

@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src https: blob:; connect-src 'self' https:; worker-src blob:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src https: blob:; connect-src 'self' https:; font-src 'self'; worker-src blob:; base-uri 'none'; form-action 'none'">
+<link rel="stylesheet" href="../fonts/fonts.css">
 <link rel="stylesheet" href="animation.css">
 </head>
 <body>
@@ -132,8 +133,12 @@
         <div class="ctrl-row" id="appearance-colors-row">
           <span class="time-lbl" style="min-width:120px;color:#888888;font-weight:600">Appearance:</span>
           <div id="legend">
-            <div class="leg-item"><input type="color" class="color-pick" id="color-team1" title="Team 1 colour"> Team 1</div>
-            <div class="leg-item"><input type="color" class="color-pick" id="color-team2" title="Team 2 colour"> Team 2</div>
+            <div class="leg-item"><input type="color" class="color-pick" id="color-team1" title="Team 1 colour"> Team 1
+              <label class="leg-two"><input type="checkbox" id="two-team1"> 2 colours</label>
+              <input type="color" class="color-pick" id="color-team1b" title="Team 1 second colour" hidden></div>
+            <div class="leg-item"><input type="color" class="color-pick" id="color-team2" title="Team 2 colour"> Team 2
+              <label class="leg-two"><input type="checkbox" id="two-team2"> 2 colours</label>
+              <input type="color" class="color-pick" id="color-team2b" title="Team 2 second colour" hidden></div>
             <div class="leg-item"><input type="color" class="color-pick" id="color-ball"  title="Ball colour"> Ball</div>
           </div>
         </div>

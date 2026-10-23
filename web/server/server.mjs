@@ -28,7 +28,7 @@ let lastFetch = null;   // {gameId, files}: kept in memory when "store locally" 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png' };
 const PUBLIC_FILES = new Set(['index.html', 'style.css', 'main.js', 'worker.js', 'vod-provider.js']);
-const PUBLIC_DIRS = ['lib/', 'data/', 'assets/', 'vendor/', 'animation/'];
+const PUBLIC_DIRS = ['lib/', 'data/', 'assets/', 'vendor/', 'animation/', 'fonts/'];
 
 const baseHeaders = {
   'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'SAMEORIGIN',

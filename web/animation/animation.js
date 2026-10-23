@@ -30,6 +30,9 @@ if (!D) throw new Error('No match data: open the visualiser page (index.html) an
 // vendor-config.js, so no request ever leaves the page.
 const VENDOR = window.OPTA_VENDOR;
 
+// Brand typeface: Roboto (declared in fonts/fonts.css). Canvas text uses this stack.
+const FONT_SANS = '"Roboto", Calibri, "Segoe UI", Arial, sans-serif';
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  VOD video state
 // ─────────────────────────────────────────────────────────────────────────────
@@ -294,6 +297,8 @@ let T = {};
 //  Coordinate helpers
 // ─────────────────────────────────────────────────────────────────────────────
 const MARGIN = 4;
+const GRASS_RUNOFF = 3.5;     // grass beyond the touchlines/goal lines (metres, must stay below MARGIN so a thin dark rim remains)
+const GOAL_W = 7.32, GOAL_NET_D = 2.0, NET_CELL = 0.3;   // goal mouth width, net depth behind the line, net mesh size (metres)
 
 function setupTransform(W, H) {
   const L = D.pitch.L, Wp = D.pitch.W;
@@ -327,6 +332,30 @@ const PITCH_COLS = 10, PITCH_ROWS = 1;
 const PITCH_TILE_CSS = ['#22663a', '#1f6035'];
 const PITCH_TILE_HEX = [0x22663a, 0x1f6035];
 
+// Grass texture: a seamless greyscale tile (mean 0.86, fine detail only), repeated across the pitch and
+// multiplied over the stripes. One tile is as wide as one stripe, so tiles line up with stripe edges. Because it
+// darkens by its mean, the stripe colours are brightened by 1/mean first, so the average colour stays
+// the two stripe greens. Until the image has loaded (or if it fails) the plain colours are used.
+const TEX_MEAN = 0.86;
+const TEX_URL = '../assets/grass-texture.jpg';
+const TEX_IMG = new Image();
+TEX_IMG.onload = () => { if (typeof currentFi !== 'undefined') render(currentFi); };
+TEX_IMG.src = TEX_URL;
+const texReady = () => TEX_IMG.complete && TEX_IMG.naturalWidth > 0;
+const brightenHex = (hex) => {
+  const c = [16, 8, 0].map((sh) => Math.min(255, Math.round(((hex >> sh) & 255) / TEX_MEAN)));
+  return (c[0] << 16) | (c[1] << 8) | c[2];
+};
+const tileHex = (k) => (texReady() ? brightenHex(PITCH_TILE_HEX[k]) : PITCH_TILE_HEX[k]);
+const texTileM = (L) => L / PITCH_COLS;            // tile size on the pitch, metres (square)
+// Pattern for ctx: tile edges start at world (x0, y0) given in canvas pixels; k = canvas px per metre.
+function texPattern(g, L, x0, y0, k) {
+  const pat = g.createPattern(TEX_IMG, 'repeat');
+  pat.setTransform(new DOMMatrix().translate(x0, y0).scale(texTileM(L) * k / TEX_IMG.naturalWidth));
+  return pat;
+}
+const tileCss = (k) => '#' + tileHex(k).toString(16).padStart(6, '0');
+
 function drawPitch(W, H) {
   const L = T.L, Wp = T.Wp, sc = T.sc;
 
@@ -337,17 +366,38 @@ function drawPitch(W, H) {
   const cw = L / PITCH_COLS, rh = Wp / PITCH_ROWS;
   const [px1, py1] = tc(-L / 2, Wp / 2);
   const [px2, py2] = tc(L / 2, -Wp / 2);
-  ctx.fillStyle = PITCH_TILE_CSS[0];
-  ctx.fillRect(Math.floor(px1), Math.floor(py1), Math.ceil(px2) - Math.floor(px1), Math.ceil(py2) - Math.floor(py1));
-  ctx.fillStyle = PITCH_TILE_CSS[1];
+  const RUN = Math.min(GRASS_RUNOFF, MARGIN - 0.25);
+  const [gx1, gy1] = tc(-L / 2 - RUN, Wp / 2 + RUN);         // grass area: the pitch plus a run-off all round
+  const [gx2, gy2] = tc(L / 2 + RUN, -Wp / 2 - RUN);
+  ctx.fillStyle = tileCss(0);
+  ctx.fillRect(Math.floor(gx1), Math.floor(gy1), Math.ceil(gx2) - Math.floor(gx1), Math.ceil(gy2) - Math.floor(gy1));
+  ctx.fillStyle = tileCss(1);
   for (let i = 0; i < PITCH_COLS; i++) {
     for (let j = 0; j < PITCH_ROWS; j++) {
       if ((i + j) % 2 === 0) continue;
-      const [cx1, cy1] = tc(-L / 2 + i * cw, Wp / 2 - j * rh);
-      const [cx2, cy2] = tc(-L / 2 + (i + 1) * cw, Wp / 2 - (j + 1) * rh);
+      const [cx1, cy1] = tc(-L / 2 + i * cw - (i === 0 ? RUN : 0), Wp / 2 - j * rh + (j === 0 ? RUN : 0));
+      const [cx2, cy2] = tc(-L / 2 + (i + 1) * cw + (i === PITCH_COLS - 1 ? RUN : 0), Wp / 2 - (j + 1) * rh - (j === PITCH_ROWS - 1 ? RUN : 0));
       const x1 = Math.floor(cx1), y1 = Math.floor(cy1);
       ctx.fillRect(x1, y1, Math.ceil(cx2) - x1, Math.ceil(cy2) - y1);
     }
+  }
+
+  // Opta logo: on the grass, below every line
+  if (logoReady()) {
+    const [lcx, lcy] = tc(0, 0);
+    const m = logoMetres(L);
+    const w = Math.round(m.w * sc), h = Math.round(m.h * sc);
+    ctx.drawImage(logoCanvas(w, h, L), Math.round(lcx - w / 2), Math.round(lcy - h / 2));
+  }
+
+  // Grass texture over stripes and logo, below every line
+  if (texReady()) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.imageSmoothingQuality = 'high';
+    ctx.fillStyle = texPattern(ctx, L, px1, py1, sc);
+    ctx.fillRect(Math.floor(gx1), Math.floor(gy1), Math.ceil(gx2) - Math.floor(gx1), Math.ceil(gy2) - Math.floor(gy1));
+    ctx.restore();
   }
 
   ctx.strokeStyle = 'rgba(255,255,255,0.82)';
@@ -396,18 +446,35 @@ function drawPitch(W, H) {
   arc( L/2,  Wp/2, 1, 180, 270);
   arc(-L/2,  Wp/2, 1, 270, 360);
 
-  const goalW = 7.32, goalD = 2.44;
-  const gMark = (gx) => {
-    const sign = gx < 0 ? -1 : 1;
-    const [ax, ay] = tc(gx, goalW / 2);
-    const [bx, by] = tc(gx + sign * goalD, -goalW / 2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-    ctx.setLineDash([2, 2]);
-    ctx.strokeRect(ax, ay, bx - ax, by - ay);
-    ctx.setLineDash([]);
-    ctx.strokeStyle = 'rgba(255,255,255,0.82)';
+  // Goal nets seen from above: shaded floor, diamond mesh, white frame (posts, goal-line bar, rear bar, side bars)
+  const drawNet = (gx) => {
+    const sign = gx < 0 ? -1 : 1, hw = GOAL_W / 2;
+    const [x1, y1] = tc(gx, hw), [x2, y2] = tc(gx + sign * GOAL_NET_D, -hw);
+    const rx = Math.min(x1, x2), ry = Math.min(y1, y2), rw = Math.abs(x2 - x1), rh = Math.abs(y2 - y1);
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';                       // shade under the net, so the mesh reads against the grass
+    ctx.fillRect(rx, ry, rw, rh);
+    ctx.beginPath(); ctx.rect(rx, ry, rw, rh); ctx.clip();
+    ctx.strokeStyle = 'rgba(255,255,255,0.42)';
+    ctx.lineWidth = Math.max(0.7, sc * 0.03);
+    const step = NET_CELL * sc;
+    ctx.beginPath();
+    for (let d = -rh; d < rw; d += step) {                    // two sets of 45-degree lines = diamond mesh
+      ctx.moveTo(rx + d, ry);      ctx.lineTo(rx + d + rh, ry + rh);
+      ctx.moveTo(rx + d, ry + rh); ctx.lineTo(rx + d + rh, ry);
+    }
+    ctx.stroke();
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+    ctx.lineWidth = Math.max(1.4, sc * 0.1);
+    ctx.strokeRect(rx, ry, rw, rh);
+    ctx.fillStyle = '#ffffff';
+    for (const [px, py, r] of [[gx, hw, 0.17], [gx, -hw, 0.17], [gx + sign * GOAL_NET_D, hw, 0.11], [gx + sign * GOAL_NET_D, -hw, 0.11]]) {
+      const [cx, cy] = tc(px, py);
+      ctx.beginPath(); ctx.arc(cx, cy, Math.max(2, r * sc), 0, 2 * Math.PI); ctx.fill();   // posts: front ones larger
+    }
   };
-  gMark(-L / 2); gMark(L / 2);
+  drawNet(-L / 2); drawNet(L / 2);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -445,8 +512,66 @@ if (D.ballImage) {
   BALL_IMG.onload = () => { if (typeof currentFi !== 'undefined') render(currentFi); };
   BALL_IMG.src = D.ballImage;
 }
+// Opta logo across the middle of the pitch (2D canvas and 3D scene), tone-on-tone with the grass:
+// wherever the logo lies over one stripe colour it is drawn in the other stripe colour, nothing more.
+// It stays clear of both penalty areas (a few metres of grass between each box and the logo's ends).
+const LOGO_URL = '../assets/opta-ai-logo_white.png';      // the same logo as the sidebar; only its shape is used
+const LOGO_BOX_GAP = 3.5;                          // metres between a penalty area (16.5 m deep) and the logo
+const LOGO_IMG = new Image();
+LOGO_IMG.onload = () => { if (typeof currentFi !== 'undefined') render(currentFi); };
+LOGO_IMG.src = LOGO_URL;
+const logoReady = () => LOGO_IMG.complete && LOGO_IMG.naturalWidth > 0;
+const logoMetres = (L) => {                        // logo size on the pitch: as long as fits between the boxes and within whole stripes
+  const clearOfBoxes = L - 2 * (16.5 + LOGO_BOX_GAP);
+  const insideStripes = (PITCH_COLS - 4) * L / PITCH_COLS - 1;   // ends 1 m inside a stripe edge, so no end sits on a colour change
+  const w = Math.max(10, Math.min(clearOfBoxes, insideStripes));
+  return { w, h: w * LOGO_IMG.naturalHeight / LOGO_IMG.naturalWidth };
+};
+let logoCache = null;                              // {key, canvas}: the recoloured logo at the current size
+function logoCanvas(wPx, hPx, L, bake) {          // bake {Wp}: also multiply the grass texture in (for 3D, where the logo is its own mesh)
+  const key = wPx + 'x' + hPx + ':' + L + ':' + texReady() + ':' + (bake ? bake.Wp : '');
+  if (logoCache && logoCache.key === key) return logoCache.canvas;
+  const c = document.createElement('canvas');
+  c.width = wPx; c.height = hPx;
+  const g = c.getContext('2d');
+  g.drawImage(LOGO_IMG, 0, 0, wPx, hPx);
+  g.globalCompositeOperation = 'source-in';        // whole canvas: keep only the logo's shape, filled with tile 1's green
+  g.fillStyle = tileCss(1); g.fillRect(0, 0, wPx, hPx);
+  g.globalCompositeOperation = 'source-atop';      // stripes of tile 1 (odd) get tile 0's green; touches only logo pixels
+  g.fillStyle = tileCss(0);
+  const cw = L / PITCH_COLS, logoW = logoMetres(L).w;
+  for (let i = 1; i < PITCH_COLS; i += 2) {        // stripe i spans world x in [-L/2 + i*cw, -L/2 + (i+1)*cw]
+    const x0 = Math.floor((-L / 2 + i * cw + logoW / 2) / logoW * wPx);
+    const x1 = Math.ceil((-L / 2 + (i + 1) * cw + logoW / 2) / logoW * wPx);
+    if (x1 > 0 && x0 < wPx) g.fillRect(Math.max(0, x0), 0, Math.min(wPx, x1) - Math.max(0, x0), hPx);
+  }
+  if (bake && texReady()) {
+    const m = logoMetres(L), k = wPx / m.w;
+    g.globalCompositeOperation = 'multiply';       // the tiled texture that lies under the logo (tiles start at the pitch's top-left corner)...
+    g.fillStyle = texPattern(g, L, (m.w / 2 - L / 2) * k, (m.h / 2 - bake.Wp / 2) * k, k);
+    g.fillRect(0, 0, wPx, hPx);
+    g.globalCompositeOperation = 'destination-in'; // ...then cut back to the logo's shape
+    g.drawImage(LOGO_IMG, 0, 0, wPx, hPx);
+  }
+  logoCache = { key, canvas: c };
+  return c;
+}
 const BALL_SPRITE_SCALE = 0.85;
 const ballImgReady = () => BALL_IMG.complete && BALL_IMG.naturalWidth > 0;
+
+// True for light colours (relative luminance above 0.4), where a white outline would disappear.
+// Second colour per team (null = single-colour team). Players are drawn half and half when it is set.
+const teamColour2 = (g) => (D.colors2 && D.colors2[g]) || null;
+
+function isLightColour(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!m) return false;
+  const [r, g, b] = [0, 2, 4].map(i => {
+    const v = parseInt(m[1].substr(i, 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.4;
+}
 
 // pass: 'players' (everyone except the ball) or 'ball'. The ball is drawn in a
 // second pass after the possession highlight so it always sits on top of it.
@@ -525,15 +650,28 @@ function drawEntities(fi, pass) {
         continue;
       }
 
-      // ── Circle ──
+      // ── Circle (two-colour teams: left half colour 1, right half colour 2) ──
+      const color2 = isBall ? null : teamColour2(entity.g);
+      const light1 = isLightColour(teamColor), light2 = color2 ? isLightColour(color2) : light1;
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, 2 * Math.PI);
 
       if (effectiveFill) {
         ctx.fillStyle   = teamColor;
-        ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+        // dark outline when every colour is light, white otherwise (a mixed kit keeps the light outline)
+        ctx.strokeStyle = (light1 && light2) ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.45)';
         ctx.fill();
+        if (color2) {
+          ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2); ctx.closePath();
+          ctx.fillStyle = color2; ctx.fill();
+          ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+        }
         ctx.stroke();
+      } else if (color2) {
+        ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI / 2, Math.PI * 1.5);
+        ctx.strokeStyle = teamColor; ctx.stroke();
+        ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2);
+        ctx.strokeStyle = color2; ctx.stroke();
       } else {
         ctx.strokeStyle = teamColor;
         ctx.stroke();
@@ -547,14 +685,26 @@ function drawEntities(fi, pass) {
         // save/restore isolates all text state so nothing bleeds into subsequent draws
         ctx.save();
         ctx.setLineDash([]);
-        ctx.font         = 'bold ' + fontSize + 'px Arial';
+        ctx.font         = '700 ' + fontSize + 'px ' + FONT_SANS;
         ctx.textAlign    = 'center';
         ctx.textBaseline = 'middle';
         ctx.lineJoin     = 'round';
-        ctx.strokeStyle  = 'rgba(0,0,0,0.85)';
-        ctx.lineWidth    = Math.max(2, fontSize * 0.28);
-        ctx.strokeText(label, cx, labelY);
-        ctx.fillStyle    = fill ? '#ffffff' : teamColor;
+        if (fill && light1 !== light2) {
+          // Two-colour kit with one light and one dark colour: white number with a dark outline, readable on both halves
+          ctx.fillStyle   = '#ffffff';
+          ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+          ctx.lineWidth   = Math.max(2, fontSize * 0.28);
+          ctx.strokeText(label, cx, labelY);
+        } else if (fill) {
+          // Number inside a filled player: same tone as the player's outline (black on light kits, white on dark), no text outline
+          ctx.fillStyle = light1 ? '#000000' : '#ffffff';
+        } else {
+          // Outline-only player: the number sits beside the ring on the grass, so it keeps its dark text outline
+          ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+          ctx.lineWidth   = Math.max(2, fontSize * 0.28);
+          ctx.strokeText(label, cx, labelY);
+          ctx.fillStyle   = teamColor;
+        }
         ctx.fillText(label, cx, labelY);
         ctx.restore();
       }
@@ -630,7 +780,7 @@ function drawPossessionHighlight(fi) {
   const primaryRingR = baseR * sc + Math.max(2.5, sc * 0.2);
 
   const fontSize = Math.max(9, sc * 0.28);
-  ctx.font = 'bold ' + fontSize + 'px Arial';
+  ctx.font = '700 ' + fontSize + 'px ' + FONT_SANS;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.setLineDash([]);
@@ -1304,7 +1454,7 @@ function drawPhaseOverlay(fi) {
 
   // ── Phase label with black outline ────────────────────────────────────────
   const label = ph.l.toUpperCase();
-  ctx.font          = '700 ' + fontSize + 'px "Barlow Condensed", Impact, "Arial Narrow", sans-serif';
+  ctx.font          = '700 ' + fontSize + 'px ' + FONT_SANS;
   ctx.letterSpacing = '0.06em';
   ctx.textAlign     = 'center';
   ctx.textBaseline  = 'middle';
@@ -1418,7 +1568,7 @@ function drawOverloadOverlay(fi) {
   const ty = by - (0.7 + 0.7) * sc - Math.max(5, sc * 0.25);
 
   ctx.save();
-  ctx.font          = 'bold ' + fontSize + 'px "Barlow Condensed", Arial, sans-serif';
+  ctx.font          = '700 ' + fontSize + 'px ' + FONT_SANS;
   ctx.letterSpacing = '0.03em';
   ctx.textAlign     = 'center';
   ctx.textBaseline  = 'bottom';
@@ -1461,7 +1611,7 @@ function drawRunInfo(fi) {
   ctx.save();
   ctx.setLineDash([]);
   ctx.globalAlpha = 0.95;
-  ctx.font = 'normal ' + fontSize + 'px "Barlow", Arial, sans-serif';
+  ctx.font = '400 ' + fontSize + 'px ' + FONT_SANS;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
 
@@ -1525,7 +1675,7 @@ function drawPressureInfo(fi) {
   ctx.save();
   ctx.setLineDash([]);
   ctx.globalAlpha = 0.95;
-  ctx.font = 'normal ' + fontSize + 'px "Barlow", Arial, sans-serif';
+  ctx.font = '400 ' + fontSize + 'px ' + FONT_SANS;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
 
@@ -1621,7 +1771,7 @@ function drawEventLabel(text, cx, topY, fontSize) {
   ctx.save();
   ctx.setLineDash([]);
   ctx.globalAlpha = 1;
-  ctx.font = fontSize + 'px Arial';
+  ctx.font = '400 ' + fontSize + 'px ' + FONT_SANS;
   const tw = ctx.measureText(text).width + 12;
   const th = fontSize + 5;
   ctx.fillStyle = 'rgba(0,0,0,0.72)';
@@ -1799,6 +1949,128 @@ function updateMeta(fi) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  Live scoreboard (2D canvas, so it is part of GIF / video exports)
+// ─────────────────────────────────────────────────────────────────────────────
+// Score at any moment = goal events up to the current frame. Own goals (qualifier 28) are credited to the
+// opposing side; if that disagrees with the final score in matchstats while the other reading agrees, the
+// other reading is used (the feed's team attribution for own goals is not assumed). Without an events
+// feed there is nothing to count, so the score shows dashes rather than a misleading 0 - 0.
+const scoreboardGoals = (() => {
+  const goals = D.events.filter(e => e.t === 'goal' && (e.ti === 0 || e.ti === 1))
+    .map(e => ({ fi: e.fi, ti: e.ti, own: (e.quals || []).some(q => q.id === 28) }));
+  const final = [parseInt(D.lineup['match_home_score'], 10), parseInt(D.lineup['match_away_score'], 10)];
+  const tally = (ownToOpponent) => goals.reduce((t, g) => { t[g.own && ownToOpponent ? 1 - g.ti : g.ti]++; return t; }, [0, 0]);
+  const matches = (t) => t[0] === final[0] && t[1] === final[1];
+  const ownToOpponent = !(goals.some(g => g.own) && !matches(tally(true)) && matches(tally(false)));
+  return goals.map(g => ({ fi: g.fi, scorer: g.own && ownToOpponent ? 1 - g.ti : g.ti }));
+})();
+const scoreAt = (fi) => { const s = [0, 0]; for (const g of scoreboardGoals) { if (g.fi > fi) break; s[g.scorer]++; } return s; };
+const teamCode = (n) => {
+  const code = D.lineup['teamcode_' + n];
+  if (code) return String(code).toUpperCase().slice(0, 4);
+  const name = D.lineup['teamname_' + n] || (n === 1 ? 'Home' : 'Away');
+  return name.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase();
+};
+
+const BOARD_LOGO = new Image();                                   // colour brand logo for the scoreboard tab
+BOARD_LOGO.onload = () => { if (typeof currentFi !== 'undefined') render(currentFi); };
+BOARD_LOGO.src = '../assets/opta-logo.png';
+
+// The logo is much larger than its slot, and a single big downscale looks jagged. Halve it step by step
+// (smoothing on) down to the exact pixel size once, cache that, and draw it unscaled at whole pixels.
+let boardLogoCache = null;
+function boardLogoAt(w, h) {
+  const key = w + 'x' + h;
+  if (boardLogoCache && boardLogoCache.key === key) return boardLogoCache.canvas;
+  let src = BOARD_LOGO, sw = BOARD_LOGO.naturalWidth, sh = BOARD_LOGO.naturalHeight;
+  while (sw / 2 > w && sh / 2 > h) {
+    const c = document.createElement('canvas');
+    c.width = Math.round(sw / 2); c.height = Math.round(sh / 2);
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.drawImage(src, 0, 0, c.width, c.height);
+    src = c; sw = c.width; sh = c.height;
+  }
+  const out = document.createElement('canvas');
+  out.width = w; out.height = h;
+  const g = out.getContext('2d');
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+  g.drawImage(src, 0, 0, w, h);
+  boardLogoCache = { key, canvas: out };
+  return out;
+}
+
+function drawScoreboard(fi) {
+  const mm = String(Math.floor(D.meta.time[fi] / 60) + (D.meta.period[fi] - 1) * 45).padStart(2, '0');
+  const ss = String(Math.floor(D.meta.time[fi] % 60)).padStart(2, '0');
+  const known = D.events.length > 0;
+  const sc2 = scoreAt(fi);
+
+  const bandH = MARGIN * T.sc;                                   // the grass strip above the touchline
+  const h = Math.max(22, Math.min(40, bandH * 0.8));
+  const widths = [2.5 * h, 2.3 * h, 2.2 * h, 2.3 * h];            // clock | home | score | away
+  const tabW = 1.15 * h;                                         // white tab with the brand logo, before the clock
+  const total = tabW + widths.reduce((a, b) => a + b, 0);
+  const xTab = T.ox + (T.L + 2 * MARGIN) * T.sc / 2 - total / 2;
+  const x0 = xTab + tabW;                                        // the clock and everything after it start here
+  const y0 = T.oy + (bandH - h) / 2;
+  const NAVY = '#3F1568', PANEL = '#f3f3f6', INK = '#16161d';
+
+  const rr = (x, y, w, hh, r, fill) => {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + hh, r); ctx.arcTo(x + w, y + hh, x, y + hh, r);
+    ctx.arcTo(x, y + hh, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+    ctx.fillStyle = fill; ctx.fill();
+  };
+  const text = (str, cx, cy, size, colour) => {
+    ctx.font = '700 ' + size + 'px ' + FONT_SANS;
+    ctx.fillStyle = colour; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(str, cx, cy);
+  };
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = h * 0.3; ctx.shadowOffsetY = h * 0.08;
+  rr(xTab, y0, total, h, h * 0.18, PANEL);                        // one white plate behind everything
+  ctx.restore();
+  ctx.save();
+  ctx.beginPath(); ctx.rect(xTab, y0, total, h); ctx.clip();
+
+  // brand logo tab (far left)
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(xTab, y0, tabW, h);
+  if (BOARD_LOGO.complete && BOARD_LOGO.naturalWidth > 0) {
+    const lh = h * 0.68, lw = lh * BOARD_LOGO.naturalWidth / BOARD_LOGO.naturalHeight;
+    ctx.drawImage(boardLogoAt(Math.round(lw), Math.round(lh)), Math.round(xTab + (tabW - lw) / 2), Math.round(y0 + (h - lh) / 2));
+  }
+
+  // clock
+
+  ctx.fillStyle = NAVY; ctx.fillRect(x0, y0, widths[0], h);
+  text(mm + ':' + ss, x0 + widths[0] / 2, y0 + h / 2, h * 0.5, '#ffffff');
+
+  // team code panels with the team colour underneath
+  const codePanel = (n, x, w) => {
+    text(teamCode(n), x + w / 2, y0 + h * 0.45, h * 0.56, INK);
+    const c2 = teamColour2(n);
+    ctx.fillStyle = D.colors[String(n)] || '#888888';
+    ctx.fillRect(x, y0 + h * 0.84, c2 ? w / 2 : w, h * 0.16);      // two-colour team: half the bar each
+    if (c2) { ctx.fillStyle = c2; ctx.fillRect(x + w / 2, y0 + h * 0.84, w / 2, h * 0.16); }
+  };
+  codePanel(1, x0 + widths[0], widths[1]);
+  const xAway = x0 + widths[0] + widths[1] + widths[2];
+  codePanel(2, xAway, widths[3]);
+
+  // score pill
+  const xs = x0 + widths[0] + widths[1];
+  ctx.fillStyle = NAVY; ctx.fillRect(xs, y0, widths[2], h);
+  const cy = y0 + h / 2, third = widths[2] / 3;
+  text(known ? String(sc2[0]) : '–', xs + third * 0.62, cy, h * 0.56, '#ffffff');
+  text(known ? String(sc2[1]) : '–', xs + widths[2] - third * 0.62, cy, h * 0.56, '#ffffff');
+  ctx.fillStyle = '#FAA51A';                                      // brand orange
+  ctx.beginPath(); ctx.arc(xs + widths[2] / 2, cy, Math.max(2, h * 0.07), 0, 2 * Math.PI); ctx.fill();
+  ctx.restore();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  Time input → frame lookup
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1943,6 +2215,15 @@ function _addGoals3D() {
   const postGeo = new THREE.CylinderGeometry(POST_R, POST_R, POST_H, 10);
   const barGeo  = new THREE.CylinderGeometry(POST_R, POST_R, GOAL_W, 10);
   const mat     = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 80 });
+  const rearPostGeo = new THREE.CylinderGeometry(POST_R * 0.6, POST_R * 0.6, POST_H, 8);
+  const sideBarGeo  = new THREE.CylinderGeometry(POST_R * 0.6, POST_R * 0.6, GOAL_NET_D, 8);
+  // One mesh cell: a pair of diagonals. Tiled (one tile = NET_CELL metres) it becomes a diamond net.
+  const nc = document.createElement('canvas'); nc.width = nc.height = 64;
+  const ng = nc.getContext('2d');
+  ng.strokeStyle = 'rgba(255,255,255,0.75)'; ng.lineWidth = 2.5;
+  ng.beginPath(); ng.moveTo(0, 0); ng.lineTo(64, 64); ng.moveTo(0, 64); ng.lineTo(64, 0); ng.stroke();
+  const netTex = new THREE.CanvasTexture(nc);
+  netTex.wrapS = netTex.wrapT = THREE.RepeatWrapping;
 
   // Build one goal at the given x position (positive or negative)
   const addGoal = (goalX) => {
@@ -1958,6 +2239,35 @@ function _addGoals3D() {
     bar.rotation.x = Math.PI / 2;
     bar.position.set(goalX, POST_H, 0);
     scene3D.add(bar);
+
+    // Net: rear posts and top bars as a thin white frame, diamond mesh on the top, back and both sides
+    const sign = goalX < 0 ? -1 : 1, D = GOAL_NET_D, rearX = goalX + sign * D;
+    [-1, 1].forEach(side => {
+      const rp = new THREE.Mesh(rearPostGeo, mat);
+      rp.position.set(rearX, POST_H / 2, side * GOAL_W / 2);
+      scene3D.add(rp);
+      const sb = new THREE.Mesh(sideBarGeo, mat);                          // top side bar, goal post to rear post
+      sb.rotation.z = Math.PI / 2;
+      sb.position.set(goalX + sign * D / 2, POST_H, side * GOAL_W / 2);
+      scene3D.add(sb);
+    });
+    const rb = new THREE.Mesh(barGeo, mat);                                // top rear bar
+    rb.rotation.x = Math.PI / 2;
+    rb.position.set(rearX, POST_H, 0);
+    scene3D.add(rb);
+    const panel = (w, h, repeatW, repeatH, rx, ry, x, y, z) => {
+      const t = netTex.clone(); t.needsUpdate = true;
+      t.repeat.set(repeatW / NET_CELL, repeatH / NET_CELL);
+      const pm = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({ map: t, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
+      pm.rotation.set(rx, ry, 0);
+      pm.position.set(x, y, z);
+      scene3D.add(pm);
+    };
+    panel(D, GOAL_W, D, GOAL_W, -Math.PI / 2, 0, goalX + sign * D / 2, POST_H, 0);               // top
+    panel(GOAL_W, POST_H, GOAL_W, POST_H, 0, Math.PI / 2, rearX, POST_H / 2, 0);                 // back
+    panel(D, POST_H, D, POST_H, 0, 0, goalX + sign * D / 2, POST_H / 2, -GOAL_W / 2);            // sides
+    panel(D, POST_H, D, POST_H, 0, 0, goalX + sign * D / 2, POST_H / 2, GOAL_W / 2);
   };
 
   addGoal(-gx);
@@ -1992,16 +2302,63 @@ function _init3DScene() {
 
   // Pitch surface — alternating flat stripes (PlaneGeometry rotated -90° about X)
   const tw = L / PITCH_COLS, th = Wp / PITCH_ROWS;
+  const stripes3D = [];
   for (let i = 0; i < PITCH_COLS; i++) {
     for (let j = 0; j < PITCH_ROWS; j++) {
-      const geo = new THREE.PlaneGeometry(tw, th);
+      // The outer stripes also cover the run-off beyond the touchlines and goal lines.
+      const extL = i === 0 ? GRASS_RUNOFF : 0, extR = i === PITCH_COLS - 1 ? GRASS_RUNOFF : 0;
+      const extT = j === 0 ? GRASS_RUNOFF : 0, extB = j === PITCH_ROWS - 1 ? GRASS_RUNOFF : 0;
+      const geo = new THREE.PlaneGeometry(tw + extL + extR, th + extT + extB);
       const mat = new THREE.MeshLambertMaterial({ color: PITCH_TILE_HEX[(i + j) % 2] });
+      stripes3D.push({ mat, i, j });
       const m   = new THREE.Mesh(geo, mat);
+      const cx = -L/2 + (i + 0.5) * tw + (extR - extL) / 2;
+      const pitchYc = Wp/2 - (j + 0.5) * th + (extT - extB) / 2;           // pitch y of the plane centre (z = -y)
       m.rotation.x = -Math.PI / 2;
-      m.position.set(-L/2 + (i + 0.5) * tw, 0, -Wp/2 + (j + 0.5) * th);
+      m.position.set(cx, 0, -pitchYc);
+      // UVs follow the stripe's own tile grid (u: one tile per stripe width; v: 0..1 over the stripe height),
+      // so the texture lines up with the 2D pitch and simply continues into the run-off.
+      const pos = geo.attributes.position, uv = geo.attributes.uv;
+      for (let k = 0; k < uv.count; k++) {
+        uv.setXY(k, (cx + pos.getX(k) - (-L/2 + i * tw)) / tw, (pitchYc + pos.getY(k) - (Wp/2 - (j + 1) * th)) / th);
+      }
       scene3D.add(m);
     }
   }
+  // Grass texture on the stripes: each stripe shows its own slice of the one texture image
+  const imgLoaded = (img) => new Promise((resolve) => {
+    if (img.complete) resolve(); else { img.addEventListener('load', resolve, { once: true }); img.addEventListener('error', resolve, { once: true }); }
+  });
+  const addLogo3D = () => {                                     // flat on the grass, under the lines; lit like the stripes
+    const m = logoMetres(L);
+    const wPx = 2048, hPx = Math.round(wPx * m.h / m.w);
+    const tex = new THREE.CanvasTexture(logoCanvas(wPx, hPx, L, { Wp }));
+    tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(m.w, m.h),
+      new THREE.MeshLambertMaterial({ map: tex, transparent: true, depthWrite: false,
+        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+    mesh.renderOrder = -1;                                       // drawn before the pitch lines, which stay on top
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(0, 0.01, 0);
+    scene3D.add(mesh);
+  };
+  Promise.all([imgLoaded(LOGO_IMG), imgLoaded(TEX_IMG)]).then(() => {   // build both once the images are known
+    if (texReady()) {
+      const tex = new THREE.Texture(TEX_IMG);          // one texture shared by all stripes: one tile across each stripe, repeating down the pitch
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      const rows = Wp / texTileM(L);
+      tex.repeat.set(1, rows);
+      tex.offset.set(0, 1 - rows);                       // a tile edge sits exactly on the top touchline
+      tex.anisotropy = 4;
+      tex.needsUpdate = true;
+      for (const { mat, i, j } of stripes3D) {
+        mat.map = tex;
+        mat.color.setHex(brightenHex(PITCH_TILE_HEX[(i + j) % 2]));
+        mat.needsUpdate = true;
+      }
+    }
+    if (logoReady()) addLogo3D();
+  });
   scene3D.add(_build3DPitchLines());
   _addGoals3D();
 
@@ -2193,6 +2550,7 @@ function render(fi) {
   drawPressures(fi);
   drawPossessionHighlight(fi);
   drawEntities(fi, 'ball');   // ball above the possession highlight
+  drawScoreboard(fi);
   if (hoveredEntity) renderTooltip(hoveredEntity, _lastMouseX, _lastMouseY);
 }
 
@@ -2512,6 +2870,22 @@ colorPick1.value = D.colors['1'] || '#4682b4';
 colorPick2.value = D.colors['2'] || '#cd5c5c';
 colorPickB.value = D.colors['4'] || '#f5c518';
 
+// Second colour per team: a checkbox switches it on, a second picker sets it. D.colors2 holds only the active ones.
+D.colors2 = D.colors2 || {};
+for (const g of [1, 2]) {
+  const box = document.getElementById('two-team' + g), pick = document.getElementById('color-team' + g + 'b');
+  let remembered = D.colors2[g] || '#ffffff';                    // survives switching the option off and on
+  pick.value = remembered;
+  box.checked = !!D.colors2[g];
+  pick.hidden = !box.checked;
+  box.addEventListener('change', () => {
+    pick.hidden = !box.checked;
+    if (box.checked) D.colors2[g] = remembered; else delete D.colors2[g];
+    render(currentFi);
+  });
+  pick.addEventListener('input', () => { remembered = pick.value; D.colors2[g] = pick.value; render(currentFi); });
+}
+
 // ── Match title bar ───────────────────────────────────────────────────────────
 (function () {
   const L        = D.lineup || {};
@@ -2521,19 +2895,12 @@ colorPickB.value = D.colors['4'] || '#f5c518';
   if (!titleEl) return;
   if (!homeName && !awayName) { titleEl.style.display = 'none'; return; }
 
-  const hs   = L['match_home_score'];
-  const as_  = L['match_away_score'];
   const comp = L['match_comp'] || '';
   const venue = L['match_venue'] || '';
   const date = L['match_date'] || '';
 
-  // Build home/away text with score embedded in the same span (avoids flex whitespace collapse)
-  const homeText = homeName + (hs !== undefined && hs !== '' ? ' (' + hs + ')' : '');
-  const awayText = awayName + (as_ !== undefined && as_ !== '' ? ' (' + as_ + ')' : '');
-
-  let html = '<span id="mt-home" class="match-team">' + homeText + '</span>'
-           + '<span class="match-neutral">&nbsp;&nbsp;vs&nbsp;&nbsp;</span>'
-           + '<span id="mt-away" class="match-team">' + awayText + '</span>';
+  // Plain text, one style throughout: the live score and team colours are on the scoreboard
+  let html = '<span class="match-neutral">' + homeName + '&nbsp;&nbsp;vs&nbsp;&nbsp;' + awayName + '</span>';
   if (comp) html += '<span class="match-sep"> | </span><span class="match-neutral">' + comp + '</span>';
   if (venue) html += '<span class="match-sep"> | </span><span class="match-neutral">' + venue + '</span>';
   if (date) html += '<span class="match-sep"> | </span><span class="match-neutral">' + date + '</span>';
@@ -2541,32 +2908,8 @@ colorPickB.value = D.colors['4'] || '#f5c518';
   titleEl.innerHTML = html;
 })();
 
-// Title text sits on a black background: lighten a dark team colour (blend towards white)
-// until it reaches a 4.5:1 contrast ratio. Pitch markers keep the exact kit colour.
-function readableOnDark(hex) {
-  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
-  if (!m) return hex;
-  let rgb = [0, 2, 4].map(i => parseInt(m[1].substr(i, 2), 16));
-  const lum = c => {
-    const [r, g, b] = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  };
-  for (let i = 0; i < 40 && (lum(rgb) + 0.05) / 0.05 < 4.5; i++) {
-    rgb = rgb.map(v => Math.round(v + (255 - v) * 0.08));
-  }
-  return '#' + rgb.map(v => v.toString(16).padStart(2, '0')).join('');
-}
-
-function updateMatchTitleColors() {
-  const h = document.getElementById('mt-home');
-  const a = document.getElementById('mt-away');
-  if (h) h.style.color = readableOnDark(D.colors['1'] || '#4682b4');
-  if (a) a.style.color = readableOnDark(D.colors['2'] || '#cd5c5c');
-}
-updateMatchTitleColors();
-
-colorPick1.addEventListener('input', () => { D.colors['1'] = colorPick1.value; _sync3DColors(); render(currentFi); updateMatchTitleColors(); });
-colorPick2.addEventListener('input', () => { D.colors['2'] = colorPick2.value; _sync3DColors(); render(currentFi); updateMatchTitleColors(); });
+colorPick1.addEventListener('input', () => { D.colors['1'] = colorPick1.value; _sync3DColors(); render(currentFi); });
+colorPick2.addEventListener('input', () => { D.colors['2'] = colorPick2.value; _sync3DColors(); render(currentFi); });
 colorPickB.addEventListener('input', () => { D.colors['4'] = colorPickB.value; _sync3DColors(); render(currentFi); });
 
 // ── Tails toggle ─────────────────────────────────────────────────────────────
@@ -3276,6 +3619,11 @@ function _closeAllBottomPanels() {
 })();
 
 resizeCanvas();
+// Canvas text needs the faces loaded before it can use them: load them, then redraw once.
+if (document.fonts && document.fonts.load) {
+  Promise.all(['300 16px "Roboto"', '400 16px "Roboto"', '700 16px "Roboto"'].map(f => document.fonts.load(f).catch(() => [])))
+    .then(() => render(currentFi));
+}
 
 // ── Auto-fit the host iframe to the content ──────────────────────────────────
 // Opening overlays / tables grows the page; resize the frame so nothing is cut off.
