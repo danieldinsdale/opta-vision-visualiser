@@ -35,7 +35,7 @@ jobs:
         run: |
           mkdir _site
           cd web
-          cp -r index.html style.css main.js worker.js vod-provider.js lib data assets vendor animation ../_site/
+          cp -r index.html style.css main.js worker.js vod-provider.js lib data assets vendor animation fonts ../_site/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

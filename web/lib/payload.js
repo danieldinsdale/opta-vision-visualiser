@@ -27,7 +27,7 @@ const r2 = (v) => roundTo(v, 2);
 
 /**
  * ``frames``: parseEptsFrames output; ``events``: placed events; returns the payload object.
- * ``extras``: {lineup, panels:{phasesByPeriod, runsByPeriod, pressures}, teamColors, vodUrls, ballImage}.
+ * ``extras``: {lineup, panels:{phasesByPeriod, runsByPeriod, pressures}, teamColors, teamColors2, vodUrls, ballImage}.
  */
 export function buildPayload(frames, events, extras) {
   const { nLines, period, implied, rows, entities } = frames;
@@ -126,11 +126,15 @@ export function buildPayload(frames, events, extras) {
   const colors = { ...TEAM_COLORS };
   for (const [k, v] of Object.entries(extras.teamColors || {})) if (k in colors && typeof v === 'string' && HEX_RE.test(v)) colors[k] = v;
 
+  const colors2 = {};
+  for (const [k, v] of Object.entries(extras.teamColors2 || {})) if ((k === '1' || k === '2') && typeof v === 'string' && HEX_RE.test(v)) colors2[k] = v;
+
   const payload = {
     pitch: { L: 105.0, W: 68.0 },
     sources: [{ id: SOURCE_ID, label: SOURCE_STYLE.label, fill: SOURCE_STYLE.fill, alpha: SOURCE_STYLE.alpha, dash: SOURCE_STYLE.dash,
       prefix: SOURCE_STYLE.prefix, suffix: SOURCE_STYLE.suffix, possession, detected }],
     colors: Object.fromEntries(Object.entries(colors).map(([k, v]) => [String(k), v])),
+    colors2,                       // optional second colour per team {'1': '#rrggbb', '2': ...}
     frameIds,
     meta,
     entities: entityOut,

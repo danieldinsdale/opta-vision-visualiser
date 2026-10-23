@@ -49,7 +49,7 @@ No video service is bundled. Out of the box, the **VOD video** panel lets you pa
 
 ## Credits
 
-Ball graphic: OpenClipart-Vectors (via Pixabay), free to use. Bundled libraries and their licences are listed in `web/vendor/README.md`.
+Ball graphic: OpenClipart-Vectors (via Pixabay), free to use. Grass texture (`web/assets/grass-texture.jpg`): derived from a photograph by Boldizsár Bednárik on Unsplash, used under the Unsplash licence (cropped, converted to greyscale, made seamless and downsized). Bundled libraries and fonts, with their licences, are listed in `web/vendor/README.md`. Typeface: Roboto (SIL OFL 1.1), bundled.
 
 ## Known limitations
 * Event type and qualifier names cover the common Opta ids; others display as `type_<id>` / the numeric id.

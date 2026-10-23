@@ -7,6 +7,7 @@ files that run are reviewable in the repository. They are loaded only when neede
 |------|---------|---------|---------|----------|
 | `three.min.js`, `OrbitControls.js` | [three.js](https://github.com/mrdoob/three.js) | 0.128.0 | MIT (`three.js.LICENSE`) | 3D view |
 | `gif.js`, `gif.worker.js` | [gif.js](https://github.com/jnordberg/gif.js) | 0.2.0 | MIT | GIF export |
+| `fonts/roboto-latin-*.woff2` | [Roboto](https://github.com/googlefonts/roboto-classic) (via Fontsource 5.3.0) | 5.3.0 | SIL OFL 1.1 (`fonts/Roboto-OFL.txt`) | All text (Light, Regular, Bold, Black; Latin subset) |
 | `hls.min.js` | [hls.js](https://github.com/video-dev/hls.js) | 1.7.3 | Apache-2.0 (`hls.js.LICENSE`) | HLS (.m3u8) video, only if a VOD URL is set |
 
 Files are unmodified copies of the packages published on npm. To update, replace the files

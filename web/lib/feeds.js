@@ -93,6 +93,7 @@ export function buildLineup(meta, matchstats, events) {
       if (cid && group) {
         contestantGroup[cid] = group;
         lookup[`teamname_${group}`] = c.name || c.shortName || '';
+        if (c.code) lookup[`teamcode_${group}`] = c.code;
         lookup[`ctg_${cid}`] = String(group);
       }
     }
@@ -108,8 +109,10 @@ export function buildLineup(meta, matchstats, events) {
     for (const team of live.lineUp || []) {
       const group = contestantGroup[team.contestantId ?? ''] || 0;
       if (!group) continue;
-      const colour = (team.kit || {}).colour1 ?? '';
-      if (typeof colour === 'string' && colour.length === 7 && colour.startsWith('#')) lookup[`kit_${group}`] = colour;
+      const kit = team.kit || {};
+      const isHex = (c) => typeof c === 'string' && c.length === 7 && c.startsWith('#');
+      if (isHex(kit.colour1 ?? '')) lookup[`kit_${group}`] = kit.colour1;
+      if (isHex(kit.colour2 ?? '')) lookup[`kit2_${group}`] = kit.colour2;     // second kit colour, if the feed gives one
       for (const player of team.player || []) {
         const pid = player.playerId ?? '', shirt = player.shirtNumber, name = player.matchName ?? '';
         setName(pid, name);

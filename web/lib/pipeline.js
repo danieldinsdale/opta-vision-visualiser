@@ -41,13 +41,18 @@ export async function buildMatchPayload(inputs, options, progress = () => {}) {
   const lineup = buildLineup(meta, matchstats, events);
   const teamColors = {};
   for (const g of [1, 2]) if (lineup[`kit_${g}`]) teamColors[g] = lineup[`kit_${g}`];
+  const teamColors2 = {};            // second colour per team; only when it differs from the first
+  for (const g of [1, 2]) {
+    const c2 = lineup[`kit2_${g}`];
+    if (c2 && c2.toLowerCase() !== String(lineup[`kit_${g}`] || '').toLowerCase()) teamColors2[g] = c2;
+  }
 
   const phases = inputs.phases ? extractPhases(loadJson(inputs.phases, 'Phases feed')) : [];
   const runs = inputs.runs ? extractRuns(loadJson(inputs.runs, 'Runs feed')) : [];
   progress('Building the animation data');
   const panels = buildContextPanels(lineup, phases, runs, pressures);
   const payload = buildPayload(frames, events, {
-    lineup, panels, teamColors, vodUrls: options.vodUrls, ballImage: options.ballImage,
+    lineup, panels, teamColors, teamColors2, vodUrls: options.vodUrls, ballImage: options.ballImage,
   });
   return { payload, warnings, eventStats, matchUuid: meta.matchUuid };
 }

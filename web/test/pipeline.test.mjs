@@ -12,6 +12,7 @@ const tolerance = (p) => (/\.entities\[\d+\]\.s\.epts\.[xyz]\[/.test(p) ? 0.0101
 test('payload matches the Python implementation', async () => {
   const { payload } = await buildMatchPayload(inputs(), options());
   const expected = JSON.parse(fixture('expected_payload.json'));
+  expected.colors2 = {};              // second kit colour was added after the Python golden file was generated; the fixture has none
   expected.lineup.match_venue = '';   // added after the Python golden file was generated; the fixture feed has no venue
   assert.deepEqual(diff(JSON.parse(JSON.stringify(payload)), expected, '$', tolerance), []);
 });
@@ -54,4 +55,17 @@ test('venue name from matchstats is exposed for the title, after the competition
   assert.equal(buildLineup(meta, ms, []).match_venue, '');                       // feed without a venue
   ms.matchInfo.venue = { shortName: 'Example Park', longName: 'Example Park Stadium' };
   assert.equal(buildLineup(meta, ms, []).match_venue, 'Example Park');
+});
+
+test('second kit colour is passed through only when valid and different from the first', async () => {
+  const ms = JSON.parse(fixture('matchstats.json'));
+  ms.liveData.lineUp[0].kit = { colour1: '#112233', colour2: '#FFFFFF' };       // two colours
+  ms.liveData.lineUp[1].kit = { colour1: '#445566', colour2: '#445566' };       // same colour twice: treated as one
+  const enc = (o) => new TextEncoder().encode(JSON.stringify(o));
+  let { payload } = await buildMatchPayload(inputs({ matchstats: enc(ms) }), options());
+  assert.deepEqual(payload.colors2, { 1: '#FFFFFF' });
+  assert.equal(payload.colors['1'], '#112233');
+  ms.liveData.lineUp[0].kit = { colour1: '#112233', colour2: 'white' };         // not a #rrggbb value: ignored
+  ({ payload } = await buildMatchPayload(inputs({ matchstats: enc(ms) }), options()));
+  assert.deepEqual(payload.colors2, {});
 });
