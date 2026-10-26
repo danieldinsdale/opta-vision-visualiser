@@ -234,6 +234,10 @@ let updatingTimeInputs = false;  // prevent infinite loops
 // Hover tooltip state
 const tooltipEl   = document.getElementById('hover-tooltip');
 let hoveredEntity = null;
+// Device pixel ratio of the 2D canvas. All 2D drawing code works in CSS pixels; the canvas has DPR times as
+// many real pixels and the context is scaled by DPR in render(), so lines, text and shading stay sharp on
+// high-density screens. Exports are produced at CSS-pixel size (the same size as before).
+let DPR = 1;
 let _lastMouseX   = 0;
 let _lastMouseY   = 0;
 
@@ -296,26 +300,32 @@ let T = {};
 // ─────────────────────────────────────────────────────────────────────────────
 //  Coordinate helpers
 // ─────────────────────────────────────────────────────────────────────────────
-const MARGIN = 4;
-const GRASS_RUNOFF = 3.5;     // grass beyond the touchlines/goal lines (metres, must stay below MARGIN so a thin dark rim remains)
-const GOAL_W = 7.32, GOAL_NET_D = 2.0, NET_CELL = 0.3;   // goal mouth width, net depth behind the line, net mesh size (metres)
+const MARGIN = 2;             // metres around the pitch inside the picture (the goal nets are 2 m deep)
+const GRASS_RUNOFF = 1.75;    // grass beyond the touchlines/goal lines (metres, must stay below MARGIN so a thin dark rim remains)
+const BAR_COLOUR = '#1b1b1e'; // header (scoreboard) and footer (match title) bars above and below the pitch
+const GOAL_W = 7.32, GOAL_NET_D = 2.0, NET_CELL = 0.3;   // goal mouth width, net depth behind the line (metres); NET_CELL is the 3D net's mesh size
 
+// The picture is a header bar (scoreboard), the pitch with its margin, and a footer bar (match title).
+// The bars have fixed pixel heights so the scoreboard stays readable at any size; the pitch scales to fit.
 function setupTransform(W, H) {
   const L = D.pitch.L, Wp = D.pitch.W;
   const dataW = L + 2 * MARGIN;
   const dataH = Wp + 2 * MARGIN;
-  const sc = Math.min(W / dataW, H / dataH);
+  const head = Math.round(Math.min(68, Math.max(54, H * 0.1)));
+  const foot = 28;
+  const sc = Math.min(W / dataW, (H - head - foot) / dataH);
   const ox = (W - dataW * sc) / 2;
-  const oy = (H - dataH * sc) / 2;
-  T = { sc, ox, oy, L, Wp };
+  const top = (H - (head + dataH * sc + foot)) / 2;           // top edge of the header bar
+  const oy = top + head;                                       // top edge of the pitch area (margin included)
+  T = { sc, ox, oy, L, Wp, head, foot, top, barW: dataW * sc };
 }
 
 // Bounding box of the pitch area (including margin) in canvas pixels.
 // Width/height are rounded to even numbers — required by VP9/H.264 encoders.
 function pitchRect() {
   const w = Math.floor((T.L  + 2 * MARGIN) * T.sc / 2) * 2;
-  const h = Math.floor((T.Wp + 2 * MARGIN) * T.sc / 2) * 2;
-  return { x: Math.round(T.ox), y: Math.round(T.oy), w, h };
+  const h = Math.floor((T.head + (T.Wp + 2 * MARGIN) * T.sc + T.foot) / 2) * 2;   // header + pitch + footer
+  return { x: Math.round(T.ox), y: Math.round(T.top), w, h };
 }
 
 function tc(x, y) {
@@ -361,6 +371,9 @@ function drawPitch(W, H) {
 
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = BAR_COLOUR;                                   // header and footer bars, as wide as the pitch area
+  ctx.fillRect(Math.floor(T.ox), Math.floor(T.top), Math.ceil(T.barW), T.head);
+  ctx.fillRect(Math.floor(T.ox), Math.floor(T.oy + (T.Wp + 2 * MARGIN) * T.sc), Math.ceil(T.barW), T.foot + 1);
 
   // Vertical grass stripes: subtle two-tone, pixel-snapped so no seams show between stripes
   const cw = L / PITCH_COLS, rh = Wp / PITCH_ROWS;
@@ -387,7 +400,7 @@ function drawPitch(W, H) {
     const [lcx, lcy] = tc(0, 0);
     const m = logoMetres(L);
     const w = Math.round(m.w * sc), h = Math.round(m.h * sc);
-    ctx.drawImage(logoCanvas(w, h, L), Math.round(lcx - w / 2), Math.round(lcy - h / 2));
+    ctx.drawImage(logoCanvas(Math.round(w * DPR), Math.round(h * DPR), L), Math.round(lcx - w / 2), Math.round(lcy - h / 2), w, h);
   }
 
   // Grass texture over stripes and logo, below every line
@@ -446,32 +459,47 @@ function drawPitch(W, H) {
   arc( L/2,  Wp/2, 1, 180, 270);
   arc(-L/2,  Wp/2, 1, 270, 360);
 
-  // Goal nets seen from above: shaded floor, diamond mesh, white frame (posts, goal-line bar, rear bar, side bars)
+  // Goal nets seen from above: a taut mesh between the posts and the rear frame, held by guy lines and pegs.
   const drawNet = (gx) => {
-    const sign = gx < 0 ? -1 : 1, hw = GOAL_W / 2;
-    const [x1, y1] = tc(gx, hw), [x2, y2] = tc(gx + sign * GOAL_NET_D, -hw);
+    const sign = gx < 0 ? -1 : 1, hw = GOAL_W / 2, D = GOAL_NET_D;
+    const P = (m, lat) => tc(gx + sign * m, lat);                 // m metres behind the goal line, lat = pitch y
+    const [x1, y1] = P(0, hw), [x2, y2] = P(D, -hw);
     const rx = Math.min(x1, x2), ry = Math.min(y1, y2), rw = Math.abs(x2 - x1), rh = Math.abs(y2 - y1);
     ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';                       // shade under the net, so the mesh reads against the grass
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';                           // shade under the net, so the mesh reads against the grass
     ctx.fillRect(rx, ry, rw, rh);
     ctx.beginPath(); ctx.rect(rx, ry, rw, rh); ctx.clip();
-    ctx.strokeStyle = 'rgba(255,255,255,0.42)';
-    ctx.lineWidth = Math.max(0.7, sc * 0.03);
-    const step = NET_CELL * sc;
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.lineWidth = Math.max(0.7, sc * 0.028);
     ctx.beginPath();
-    for (let d = -rh; d < rw; d += step) {                    // two sets of 45-degree lines = diamond mesh
-      ctx.moveTo(rx + d, ry);      ctx.lineTo(rx + d + rh, ry + rh);
-      ctx.moveTo(rx + d, ry + rh); ctx.lineTo(rx + d + rh, ry);
+    for (let i = 1; i < 14; i++) {                                // strands across the goal, pulled slightly in at mid-depth
+      const lat = -hw + GOAL_W * i / 14, [sx, sy] = P(0, lat), [ex, ey] = P(D, lat), [cx, cy] = P(D / 2, lat * 0.94);
+      ctx.moveTo(sx, sy); ctx.quadraticCurveTo(cx, cy, ex, ey);
+    }
+    for (let j = 1; j < 10; j++) {                                // strands front to back
+      const [sx, sy] = P(D * j / 10, -hw), [ex, ey] = P(D * j / 10, hw);
+      ctx.moveTo(sx, sy); ctx.lineTo(ex, ey);
     }
     ctx.stroke();
     ctx.restore();
     ctx.strokeStyle = 'rgba(255,255,255,0.92)';
-    ctx.lineWidth = Math.max(1.4, sc * 0.1);
-    ctx.strokeRect(rx, ry, rw, rh);
+    ctx.lineWidth = Math.max(1.3, sc * 0.09);
+    ctx.strokeRect(rx, ry, rw, rh);                               // top frame
+    const [fx1, fy1] = P(0, -hw), [fx2, fy2] = P(0, hw);
+    ctx.lineWidth = Math.max(2, sc * 0.16);
+    ctx.beginPath(); ctx.moveTo(fx1, fy1); ctx.lineTo(fx2, fy2); ctx.stroke();   // goal-line bar
     ctx.fillStyle = '#ffffff';
-    for (const [px, py, r] of [[gx, hw, 0.17], [gx, -hw, 0.17], [gx + sign * GOAL_NET_D, hw, 0.11], [gx + sign * GOAL_NET_D, -hw, 0.11]]) {
-      const [cx, cy] = tc(px, py);
-      ctx.beginPath(); ctx.arc(cx, cy, Math.max(2, r * sc), 0, 2 * Math.PI); ctx.fill();   // posts: front ones larger
+    for (const lat of [-hw, hw]) {                                // posts
+      const [cx, cy] = P(0, lat);
+      ctx.beginPath(); ctx.arc(cx, cy, Math.max(2, 0.17 * sc), 0, 2 * Math.PI); ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';                    // guy lines from the rear corners to ground pegs
+    ctx.lineWidth = Math.max(0.8, sc * 0.03);
+    for (const side of [-1, 1]) {
+      const [cx, cy] = P(D, side * hw), [px, py] = P(D + 1.1, side * (hw + 0.5));
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(px, py); ctx.stroke();
+      ctx.fillStyle = '#c9ccd3';
+      ctx.beginPath(); ctx.arc(px, py, Math.max(1.6, sc * 0.09), 0, 2 * Math.PI); ctx.fill();
     }
   };
   drawNet(-L / 2); drawNet(L / 2);
@@ -506,11 +534,118 @@ function getZ(entity, srcId, fi) {
   return idx >= 0 ? src.z[idx] : 0;
 }
 
-// Football sprite (data URL from the payload). Falls back to a plain circle until loaded.
-const BALL_IMG = new Image();
-if (D.ballImage) {
-  BALL_IMG.onload = () => { if (typeof currentFi !== 'undefined') render(currentFi); };
-  BALL_IMG.src = D.ballImage;
+// ── Football: a 3D ball drawn from above, with a rotation worked out from the tracked motion ──────────
+// The ball is a truncated icosahedron (12 black pentagons, seams between the white hexagons) rotated by a
+// quaternion and projected onto the screen. Orientation is integrated once per ball source from the
+// positions: while the ball is on the ground it rolls without slipping (spin axis perpendicular to the
+// direction of travel, rate = ground speed / drawn radius, see BALL_SPIN_SCALE); in the air it keeps the spin it left the ground with
+// (slowly fading), and on landing it blends back into rolling over a few frames.
+const BALL_GROUND_Z = 0.22;                 // below this height the ball counts as on the ground
+const BALL_MAX_STEP = 1.4;                  // rad per frame cap: faster spin would just strobe on screen
+const BALL_SPRITE_SCALE = 0.85;             // drawn size relative to the tracked-ball marker radius
+// The ball is drawn about 5x larger than a real one (0.7 m marker radius), so spinning it at the real
+// rate (speed / 0.11 m) looks far too fast. The spin is instead what a no-slip roll of the *drawn* ball
+// would be: speed / drawn radius. BALL_SPIN_SCALE tunes it: 1 = rolls without visibly slipping, 0.5 = half
+// that rate, 2 = twice.
+const BALL_SPIN_SCALE = 1;
+const BALL_SPIN_R_M = 0.7 * BALL_SPRITE_SCALE;   // drawn ball radius in metres (the ball marker radius is 0.7 m)
+const BALL_GEOM = (() => {
+  const phi = (1 + Math.sqrt(5)) / 2, norm = (v) => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; };
+  const raw = [];
+  for (const a of [-1, 1]) for (const b of [-phi, phi]) raw.push([0, a, b], [a, b, 0], [b, 0, a]);   // 12 icosahedron vertices
+  const near = (u, v) => Math.abs(Math.hypot(u[0] - v[0], u[1] - v[1], u[2] - v[2]) - 2) < 1e-6;      // edge length is 2
+  const lerp = (u, v, t) => norm([u[0] + (v[0] - u[0]) * t, u[1] + (v[1] - u[1]) * t, u[2] + (v[2] - u[2]) * t]);
+  const pentagons = raw.map((c) => {
+    const nb = raw.filter((v) => near(c, v));                    // the 5 neighbours; truncating 1/3 along each edge gives the pentagon corners
+    const cn = norm(c);
+    const t1 = norm([cn[1] * nb[0][2] - cn[2] * nb[0][1], cn[2] * nb[0][0] - cn[0] * nb[0][2], cn[0] * nb[0][1] - cn[1] * nb[0][0]]);
+    const t2 = [cn[1] * t1[2] - cn[2] * t1[1], cn[2] * t1[0] - cn[0] * t1[2], cn[0] * t1[1] - cn[1] * t1[0]];
+    const corners = nb.map((v) => lerp(c, v, 1 / 3));
+    corners.sort((p, q) => Math.atan2(p[0] * t2[0] + p[1] * t2[1] + p[2] * t2[2], p[0] * t1[0] + p[1] * t1[1] + p[2] * t1[2])
+                         - Math.atan2(q[0] * t2[0] + q[1] * t2[1] + q[2] * t2[2], q[0] * t1[0] + q[1] * t1[1] + q[2] * t1[2]));
+    return corners;
+  });
+  const seams = [];                                              // middle third of every icosahedron edge = a hexagon/hexagon seam
+  for (let i = 0; i < raw.length; i++) for (let j = i + 1; j < raw.length; j++) {
+    if (!near(raw[i], raw[j])) continue;
+    seams.push([lerp(raw[i], raw[j], 1 / 3), lerp(raw[i], raw[j], 0.5), lerp(raw[i], raw[j], 2 / 3)]);
+  }
+  return { pentagons, seams };
+})();
+
+const quatMul = (a, b) => [
+  a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+  a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
+const quatRotate = (q, v) => {                                   // q * v * q^-1
+  const [x, y, z, w] = q, [vx, vy, vz] = v;
+  const tx = 2 * (y * vz - z * vy), ty = 2 * (z * vx - x * vz), tz = 2 * (x * vy - y * vx);
+  return [vx + w * tx + (y * tz - z * ty), vy + w * ty + (z * tx - x * tz), vz + w * tz + (x * ty - y * tx)];
+};
+
+const ballSpinCache = {};
+/** Orientation quaternions, 4 floats per frame, for one tracked-ball source (computed once, then cached). */
+function ballOrientations(entity, srcId) {
+  const key = entity.g + ':' + entity.j + ':' + srcId;
+  if (ballSpinCache[key]) return ballSpinCache[key];
+  const N = TOTAL_FRAMES, DT = 0.04;                             // 25 Hz tracking
+  const src = entity.s[srcId];
+  const px = new Float32Array(N).fill(NaN), py = new Float32Array(N).fill(NaN), pz = new Float32Array(N);
+  if (src) for (let k = 0; k < src.fi.length; k++) { const f = src.fi[k]; if (f >= 0 && f < N) { px[f] = src.x[k]; py[f] = src.y[k]; pz[f] = src.z ? src.z[k] : 0; } }
+  const out = new Float32Array(4 * N);
+  let q = [0.2, 0.1, 0.05, 0.97], wx = 0, wy = 0, wz = 0;        // arbitrary starting orientation, not spinning
+  const lastOk = (arr, i) => !Number.isNaN(arr[i]);
+  for (let i = 0; i < N; i++) {
+    const i0 = Math.max(0, i - 2), i1 = Math.min(N - 1, i + 2);  // velocity over +-2 frames, to smooth tracking noise
+    let vx = 0, vy = 0;
+    if (lastOk(px, i0) && lastOk(px, i1) && i1 > i0) { vx = (px[i1] - px[i0]) / ((i1 - i0) * DT); vy = (py[i1] - py[i0]) / ((i1 - i0) * DT); }
+    if (!lastOk(px, i)) { wx *= 0.9; wy *= 0.9; wz *= 0.9; }     // no data: the spin just dies away
+    else if (pz[i] < BALL_GROUND_Z) {                            // on the ground: roll towards the rolling spin over ~3 frames
+      const tx = -vy * BALL_SPIN_SCALE / BALL_SPIN_R_M, ty = vx * BALL_SPIN_SCALE / BALL_SPIN_R_M;   // up x velocity / radius
+      wx += (tx - wx) * 0.4; wy += (ty - wy) * 0.4; wz *= 0.6;
+    } else { wx *= 0.996; wy *= 0.996; wz *= 0.996; }            // in the air: keep spinning
+    let mag = Math.hypot(wx, wy, wz) * DT;
+    if (mag > BALL_MAX_STEP) { const k = BALL_MAX_STEP / mag; wx *= k; wy *= k; wz *= k; mag = BALL_MAX_STEP; }
+    if (mag > 1e-5) {
+      const s = Math.sin(mag / 2) / (mag / DT);                  // axis = w/|w|, so axis*sin(a/2) = w * sin(a/2) / |w|
+      q = quatMul([wx * s, wy * s, wz * s, Math.cos(mag / 2)], q);
+      const l = Math.hypot(q[0], q[1], q[2], q[3]); q = [q[0] / l, q[1] / l, q[2] / l, q[3] / l];
+    }
+    out[4 * i] = q[0]; out[4 * i + 1] = q[1]; out[4 * i + 2] = q[2]; out[4 * i + 3] = q[3];
+  }
+  return (ballSpinCache[key] = out);
+}
+
+/** Draw the ball at (cx, cy), radius r px, with orientation quaternion q. Screen: x right, y up (pitch), z towards the viewer. */
+function drawBall(cx, cy, r, q) {
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.clip();
+  ctx.fillStyle = '#f4f4f2'; ctx.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+  const proj = (v) => { const w = quatRotate(q, v); return [cx + r * w[0], cy - r * w[1], w[2]]; };
+  if (r >= 9) {                                                  // seams only when big enough to see
+    ctx.strokeStyle = 'rgba(40,40,40,0.55)'; ctx.lineWidth = Math.max(0.6, r * 0.04); ctx.lineCap = 'round';
+    for (const seam of BALL_GEOM.seams) {
+      const pts = seam.map(proj);
+      if (pts.every(p => p[2] <= 0.02)) continue;
+      ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[1][0], pts[1][1]); ctx.lineTo(pts[2][0], pts[2][1]); ctx.stroke();
+    }
+  }
+  ctx.fillStyle = '#1b1b1d';
+  for (const poly of BALL_GEOM.pentagons) {
+    const pts = poly.map(proj);
+    if (pts.every(p => p[2] <= -0.05)) continue;                 // wholly on the far side
+    ctx.beginPath();
+    pts.forEach((p, i) => {                                      // corners behind the limb are pushed onto it
+      let x = p[0], y = p[1];
+      if (p[2] < 0) { const dx = x - cx, dy = y - cy, l = Math.hypot(dx, dy) || 1; x = cx + dx / l * r; y = cy + dy / l * r; }
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.closePath(); ctx.fill();
+  }
+  const g = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.35, r * 0.1, cx, cy, r);   // dome shading
+  g.addColorStop(0, 'rgba(255,255,255,0.22)'); g.addColorStop(0.55, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(0,0,0,0.32)');
+  ctx.fillStyle = g; ctx.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.lineWidth = Math.max(1, r * 0.06); ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.stroke();
 }
 // Opta logo across the middle of the pitch (2D canvas and 3D scene), tone-on-tone with the grass:
 // wherever the logo lies over one stripe colour it is drawn in the other stripe colour, nothing more.
@@ -556,12 +691,26 @@ function logoCanvas(wPx, hPx, L, bake) {          // bake {Wp}: also multiply th
   logoCache = { key, canvas: c };
   return c;
 }
-const BALL_SPRITE_SCALE = 0.85;
-const ballImgReady = () => BALL_IMG.complete && BALL_IMG.naturalWidth > 0;
 
 // True for light colours (relative luminance above 0.4), where a white outline would disappear.
 // Second colour per team (null = single-colour team). Players are drawn half and half when it is set.
 const teamColour2 = (g) => (D.colors2 && D.colors2[g]) || null;
+
+// Gives a filled disc a slight 3D look: light from the upper left across the whole disc (lighter
+// top-left half, darker bottom-right half) plus a gentle darkening all round the rim. Drawn over any fill,
+// so it works for single- and two-colour kits alike.
+function shadeDisc(cx, cy, r) {
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+  const g = ctx.createLinearGradient(cx - r * 0.75, cy - r * 0.75, cx + r * 0.75, cy + r * 0.75);
+  g.addColorStop(0, 'rgba(255,255,255,0.18)'); g.addColorStop(0.5, 'rgba(255,255,255,0)');
+  g.addColorStop(0.5, 'rgba(0,0,0,0)');        g.addColorStop(1, 'rgba(0,0,0,0.24)');
+  ctx.fillStyle = g; ctx.fill();
+  const rg = ctx.createRadialGradient(cx, cy, r * 0.55, cx, cy, r);
+  rg.addColorStop(0, 'rgba(0,0,0,0)'); rg.addColorStop(1, 'rgba(0,0,0,0.20)');
+  ctx.fillStyle = rg; ctx.fill();
+  ctx.restore();
+}
 
 function isLightColour(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
@@ -637,10 +786,23 @@ function drawEntities(fi, pass) {
       // ── Stroke width — outline-only sources get thicker stroke for visibility
       ctx.lineWidth = effectiveFill ? Math.max(1, sc * 0.08) : Math.max(2, sc * 0.16);
 
-      // ── Ball: football sprite (secondary sources also get their dashed/outline ring) ──
-      if (isBall && ballImgReady()) {
-        const sr = r * BALL_SPRITE_SCALE;   // sprite scale relative to the tracked ball radius
-        ctx.drawImage(BALL_IMG, cx - sr, cy - sr, 2 * sr, 2 * sr);
+      // ── Ball: rotating football (secondary sources also get their dashed/outline ring) ──
+      if (isBall) {
+        const sr = r * BALL_SPRITE_SCALE;   // ball size relative to the tracked-ball marker radius
+        const quats = ballOrientations(entity, src.id);
+        // Ground shadow: the light is up-left, so the shadow sits down-right of the ball and moves further away,
+        // spreads and fades as the ball rises. Its size stays that of the ball on the ground.
+        const zb = Math.max(0, getZ(entity, src.id, fi));
+        const sr0 = baseR * sc * BALL_SPRITE_SCALE;                    // ball radius on the ground (px)
+        const shx = cx + sr0 * 0.1 + zb * 0.22 * sc, shy = cy + sr0 * 0.18 + zb * 0.35 * sc;
+        const shR = sr0 * (1.25 + Math.min(zb, 25) * 0.05), shA = Math.max(0.14, 0.42 - zb * 0.012);
+        const sg = ctx.createRadialGradient(shx, shy, 0, shx, shy, shR);
+        sg.addColorStop(0, 'rgba(0,0,0,' + shA + ')'); sg.addColorStop(0.55, 'rgba(0,0,0,' + shA * 0.7 + ')'); sg.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.save();
+        ctx.fillStyle = sg;
+        ctx.beginPath(); ctx.arc(shx, shy, shR, 0, 2 * Math.PI); ctx.fill();
+        ctx.restore();
+        drawBall(cx, cy, sr, [quats[4 * fi], quats[4 * fi + 1], quats[4 * fi + 2], quats[4 * fi + 3]]);
         if (si > 0) {
           ctx.beginPath();
           ctx.arc(cx, cy, sr, 0, 2 * Math.PI);
@@ -660,12 +822,19 @@ function drawEntities(fi, pass) {
         ctx.fillStyle   = teamColor;
         // dark outline when every colour is light, white otherwise (a mixed kit keeps the light outline)
         ctx.strokeStyle = (light1 && light2) ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.45)';
+        if (!isBall) {                                           // soft contact shadow under the disc (up-left light)
+          ctx.save();
+          ctx.shadowColor = 'rgba(0,0,0,0.38)'; ctx.shadowBlur = r * 0.4;
+          ctx.shadowOffsetX = r * 0.12; ctx.shadowOffsetY = r * 0.22;
+        }
         ctx.fill();
+        if (!isBall) ctx.restore();
         if (color2) {
           ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2); ctx.closePath();
           ctx.fillStyle = color2; ctx.fill();
-          ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI);
         }
+        if (!isBall) shadeDisc(cx, cy, r);
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI);
         ctx.stroke();
       } else if (color2) {
         ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI / 2, Math.PI * 1.5);
@@ -719,83 +888,57 @@ function drawEntities(fi, pass) {
 //  Possession highlight
 // ─────────────────────────────────────────────────────────────────────────────
 
-function drawPossessionHighlight(fi) {
+// Surname for the possession capsule: the last word, or from a lowercase particle ("van Dijk", "de Jong").
+// Names that are only a shirt number ("#7") are kept as they are.
+const NAME_PARTICLES = new Set(['van', 'von', 'de', 'der', 'den', 'da', 'das', 'do', 'dos', 'di', 'del', 'della', 'le', 'la', 'el', 'al', 'bin', 'ter', 'ten']);
+function surnameOf(name) {
+  const w = String(name).trim().split(/\s+/);
+  if (w.length < 2 || name.startsWith('#')) return String(name);
+  for (let i = 1; i < w.length; i++) if (NAME_PARTICLES.has(w[i].toLowerCase())) return w.slice(i).join(' ');
+  return w[w.length - 1];
+}
+
+// Possession marker: a dark capsule that grows out of the player on the ball and carries their surname.
+// It is drawn before the players (pass 'ring') so the player disc sits on top of its left end.
+// pass 'label' is no longer used and does nothing.
+function drawPossessionHighlight(fi, pass) {
+  if (pass !== 'ring') return;
   const sc = T.sc;
-  const baseR = 1.4;
-  const nSrc = D.sources.length;
-
-  // Draw possession rings for each source independently
-  let labelPos = null;
-  let lastPoss = null;  // Track possession for label rendering
-  for (let si = nSrc - 1; si >= 0; si--) {
+  const R = 1.4 * sc;                                  // player disc radius
+  let pos = null, poss = null;
+  for (let si = 0; si < D.sources.length; si++) {      // first visible source with a possession and a position
     const src = D.sources[si];
-    if (!visibleSources.has(src.id)) continue;
-
-    // Use source-specific possession if available, otherwise skip
-    if (!src.possession || !src.possession[fi]) continue;
-    const poss = src.possession[fi];
-    if (!lastPoss) lastPoss = poss;  // Keep first possession for label
-
-    const entity = D.entities.find(e => e.g === poss.g && e.j === poss.j);
+    if (!visibleSources.has(src.id) || !src.possession || !src.possession[fi]) continue;
+    const p = src.possession[fi];
+    const entity = D.entities.find(e => e.g === p.g && e.j === p.j);
     if (!entity) continue;
-
-    // In mode 1 (hide out-of-view) suppress the ring too; mode 2 keeps it at full alpha
     const detectedList = src.detected && src.detected[fi];
     const inView = detectedList && detectedList.includes(`${entity.g}:${entity.j}`);
-    if (inViewMode === 1 && !inView) continue;
-
-    const pos = getPos(entity, src.id, fi);
-    if (!pos) continue;
-
-    if (si === 0 || labelPos === null) labelPos = pos;
-
-    const [cx, cy] = tc(pos[0], pos[1]);
-    const rOffset = si * 0.18;  // matches drawEntities radius offset per source
-    const entityR = (baseR + rOffset) * sc;
-    const ringR = entityR + Math.max(2.5, sc * 0.2);
-
-    ctx.globalAlpha = 1;
-    ctx.setLineDash([]);
-
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = Math.max(2.5, sc * 0.22);
-    ctx.beginPath();
-    ctx.arc(cx, cy, ringR, 0, 2 * Math.PI);
-    ctx.stroke();
-
-    // Thin white outer ring so the black reads on a dark pitch
-    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-    ctx.lineWidth = Math.max(1, sc * 0.09);
-    ctx.beginPath();
-    ctx.arc(cx, cy, ringR + Math.max(1.5, sc * 0.13), 0, 2 * Math.PI);
-    ctx.stroke();
+    if (inViewMode === 1 && !inView) continue;       // mode 1 hides players that are out of view
+    const q = getPos(entity, src.id, fi);
+    if (!q) continue;
+    pos = q; poss = p;
+    break;
   }
+  if (!pos) return;
 
-  if (!labelPos || !lastPoss) return;
-
-  const displayName = (D.lineup && D.lineup[lastPoss.g + ':' + lastPoss.j]) || ('#' + lastPoss.j);
-
-  // Anchor label to the primary (first visible) source position
-  const [cx, cy] = tc(labelPos[0], labelPos[1]);
-  const primaryRingR = baseR * sc + Math.max(2.5, sc * 0.2);
-
-  const fontSize = Math.max(9, sc * 0.28);
+  const name = surnameOf((D.lineup && D.lineup[poss.g + ':' + poss.j]) || ('#' + poss.j));
+  const [cx, cy] = tc(pos[0], pos[1]);
+  const fontSize = Math.max(10, R * 0.86);
+  ctx.save();
+  ctx.globalAlpha = 1;
+  ctx.setLineDash([]);
   ctx.font = '700 ' + fontSize + 'px ' + FONT_SANS;
+  const w = ctx.measureText(name).width + R * 0.6;
+  ctx.fillStyle = 'rgba(0,0,0,0.78)';
+  ctx.beginPath();
+  ctx.roundRect(cx - R, cy - R, 2 * R + w, 2 * R, R);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.setLineDash([]);
-
-  const tw = ctx.measureText(displayName).width + 8;
-  const th = fontSize + 5;
-  const lx = cx + primaryRingR + Math.max(3, sc * 0.12);
-
-  ctx.fillStyle = 'rgba(0,0,0,0.75)';
-  ctx.beginPath();
-  ctx.roundRect(lx, cy - th / 2, tw, th, 3);
-  ctx.fill();
-
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(displayName, lx + 4, cy);
+  ctx.fillText(name, cx + R + R * 0.3, cy + 0.5);
+  ctx.restore();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1060,7 +1203,7 @@ function renderTooltip(entity, cx, cy) {
   html += _pressureTooltipExtra(entity.g, entity.j);
   tooltipEl.innerHTML = html;
 
-  const W = canvas.width, H = canvas.height;
+  const W = canvas.width / DPR, H = canvas.height / DPR;
   const ttW = tooltipEl.offsetWidth || 160, ttH = tooltipEl.offsetHeight || 38;
   let tx = cx + 14, ty = cy - ttH - 10;
   if (tx + ttW > W) tx = cx - ttW - 14;
@@ -1072,8 +1215,8 @@ function renderTooltip(entity, cx, cy) {
 
 canvas.addEventListener('mousemove', (e) => {
   const rect = canvas.getBoundingClientRect();
-  _lastMouseX = (e.clientX - rect.left) * (canvas.width  / rect.width);
-  _lastMouseY = (e.clientY - rect.top)  * (canvas.height / rect.height);
+  _lastMouseX = (e.clientX - rect.left) * (canvas.width  / DPR / rect.width);     // CSS pixels
+  _lastMouseY = (e.clientY - rect.top)  * (canvas.height / DPR / rect.height);
   renderTooltip(findHoveredEntity(_lastMouseX, _lastMouseY), _lastMouseX, _lastMouseY);
 });
 
@@ -1440,68 +1583,87 @@ function drawPhaseOverlay(fi) {
   const teamColor = D.colors[String(possG)] || '#ffffff';
   const sc        = T.sc;
   const attackDir = _getAttackDir(possG, fi);
+  // Same light/dark rule as the players: black outline on a light team colour, white on a dark one
+  const outline   = isLightColour(teamColor) ? 'rgba(0,0,0,0.9)' : 'rgba(255,255,255,0.9)';
 
   // Position text 10m above the bottom touchline, centered horizontally
   const [, innerBottomY] = tc(0, -(D.pitch.W / 2) + 10);
   const fontSize  = Math.max(54, sc * 4.8) * 0.6;   // 40% smaller than the original size
   const textY     = innerBottomY;
-  const textX     = canvas.width / 2;
+  const textX     = canvas.width / DPR / 2;
   const arrowY    = textY + fontSize + Math.max(10, sc * 0.4);
+
+  // Everything is drawn opaque on a scratch layer and composited once at 65 %. Drawing the outline and
+  // fill separately at partial opacity would let the outline show through the inside of the letters.
+  const dpr = DPR || 1;
+  const w = canvas.width / dpr, h = canvas.height / dpr;
+  if (!_phaseLayer) _phaseLayer = document.createElement('canvas');
+  if (_phaseLayer.width !== canvas.width || _phaseLayer.height !== canvas.height) {
+    _phaseLayer.width = canvas.width; _phaseLayer.height = canvas.height;
+  }
+  const g = _phaseLayer.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, _phaseLayer.width, _phaseLayer.height);
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // ── Phase label: outline underneath, team colour on top ───────────────────
+  const label = ph.l.toUpperCase();
+  g.font          = '700 ' + fontSize + 'px ' + FONT_SANS;
+  g.letterSpacing = '0.06em';
+  g.textAlign     = 'center';
+  g.textBaseline  = 'middle';
+  g.lineJoin      = 'round';
+  g.strokeStyle   = outline;
+  g.lineWidth     = Math.max(3, fontSize * 0.12);
+  g.strokeText(label, textX, textY);
+  g.fillStyle     = teamColor;
+  g.fillText(label, textX, textY);
+  g.letterSpacing = '0px';
+
+  // ── Attack direction: stream of chevrons travelling in the attack direction ─
+  // The offset comes from the frame index, so it moves while playing and holds still when paused.
+  const dir      = attackDir === 'right' ? 1 : -1;
+  const halfW    = Math.max(40, sc * 3.2);
+  const chevH    = Math.max(7, sc * 0.55);          // half-height of a chevron
+  const spacing  = chevH * 3.4;
+  const count    = Math.max(4, Math.round((2 * halfW) / spacing));
+  const span     = count * spacing;
+  const shift    = (fi * chevH * 0.18) % spacing;   // 0 .. spacing
+
+  // One chevron is drawn opaque on a small scratch canvas, then faded onto the layer.
+  const pad  = Math.max(4.5, sc * 0.32);
+  const cw   = Math.ceil(chevH * 2 + pad * 2), chh = Math.ceil(chevH * 2 + pad * 2);
+  if (!_chevTile) _chevTile = document.createElement('canvas');
+  _chevTile.width = Math.ceil(cw * dpr); _chevTile.height = Math.ceil(chh * dpr);
+  const t = _chevTile.getContext('2d');
+  t.setTransform(dpr, 0, 0, dpr, 0, 0);
+  t.lineJoin = 'round'; t.lineCap = 'round';
+  const cx0 = cw / 2 - dir * chevH * 0.1, cy0 = chh / 2;
+  t.beginPath();
+  t.moveTo(cx0 - dir * chevH * 0.6, cy0 - chevH);
+  t.lineTo(cx0 + dir * chevH * 0.4, cy0);
+  t.lineTo(cx0 - dir * chevH * 0.6, cy0 + chevH);
+  t.lineWidth = Math.max(4.5, sc * 0.32); t.strokeStyle = outline;  t.stroke();
+  t.lineWidth = Math.max(2.5, sc * 0.18); t.strokeStyle = teamColor; t.stroke();
+
+  for (let k = 0; k < count; k++) {
+    // u runs 0 (tail) → 1 (head) and wraps, so chevrons loop along the lane
+    const u = (((k * spacing + shift) % span) + span) % span / span;
+    const x = textX + dir * (-span / 2 + u * span);
+    // Fade in at the tail, brighten toward the head, fade out at the very end
+    g.globalAlpha = Math.min(1, u / 0.12) * Math.min(1, (1 - u) / 0.1) * (0.2 + 0.8 * u);
+    g.drawImage(_chevTile, x - cx0, arrowY - cy0, cw, chh);
+  }
+  g.globalAlpha = 1;
 
   ctx.save();
   ctx.globalAlpha = 0.65;
-  ctx.setLineDash([]);
-
-  // ── Phase label with black outline ────────────────────────────────────────
-  const label = ph.l.toUpperCase();
-  ctx.font          = '700 ' + fontSize + 'px ' + FONT_SANS;
-  ctx.letterSpacing = '0.06em';
-  ctx.textAlign     = 'center';
-  ctx.textBaseline  = 'middle';
-  ctx.lineJoin      = 'round';
-  ctx.strokeStyle   = 'rgba(0,0,0,0.9)';
-  ctx.lineWidth     = Math.max(3, fontSize * 0.12);
-  ctx.strokeText(label, textX, textY);
-  ctx.fillStyle     = teamColor;
-  ctx.fillText(label, textX, textY);
-  ctx.letterSpacing = '0px';  // reset so it doesn't affect other draws
-
-  // ── Attack direction arrow ────────────────────────────────────────────────
-  const arrowHalfW = Math.max(40, sc * 3.2);
-  const headLen    = Math.max(12, sc * 0.9);
-  const headAngle  = Math.PI / 4.5;
-  const angle      = attackDir === 'right' ? 0 : Math.PI;
-  const ax1 = textX + (attackDir === 'right' ? -arrowHalfW :  arrowHalfW);
-  const ax2 = textX + (attackDir === 'right' ?  arrowHalfW : -arrowHalfW);
-  // Arrowhead triangle vertices
-  const hx1 = ax2 - headLen * Math.cos(angle - headAngle);
-  const hy1 = arrowY - headLen * Math.sin(angle - headAngle);
-  const hx2 = ax2 - headLen * Math.cos(angle + headAngle);
-  const hy2 = arrowY - headLen * Math.sin(angle + headAngle);
-  // Shaft ends just behind the arrowhead
-  const shaftEnd = ax2 - headLen * Math.cos(angle) * 0.65;
-
-  // Draw twice: black outline first, team colour on top
-  for (const [lw, col] of [
-      [Math.max(4.5, sc * 0.32), 'rgba(0,0,0,0.9)'],
-      [Math.max(2.5, sc * 0.18), teamColor],
-  ]) {
-    ctx.lineWidth   = lw;
-    ctx.strokeStyle = col;
-    ctx.fillStyle   = col;
-    ctx.lineJoin    = 'round';
-    ctx.beginPath(); ctx.moveTo(ax1, arrowY); ctx.lineTo(shaftEnd, arrowY); ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(ax2, arrowY);
-    ctx.lineTo(hx1, hy1);
-    ctx.lineTo(hx2, hy2);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-  }
-
+  ctx.drawImage(_phaseLayer, 0, 0, w, h);
   ctx.restore();
 }
+
+var _phaseLayer = null;   // scratch layers for the phase overlay (see drawPhaseOverlay)
+var _chevTile   = null;
 
 // Phase Overlay toggle button
 const btnPhaseOverlay = document.getElementById('btn-phase-overlay');
@@ -1766,20 +1928,108 @@ function actorPosFor(evt, fi) {
   return null;
 }
 
-// Black rounded box with white text; (cx, topY) is the top-centre of the box.
-function drawEventLabel(text, cx, topY, fontSize) {
+// Event icons: simple line drawings on a ±5 unit grid, drawn centred at (0,0) after the caller
+// scales to the icon size. Event types without an entry fall back to a plain dot.
+const EVENT_ICON_FAMILY = {
+  pass: 'arrow', offside_pass: 'flag', blocked_pass: 'blocked', cross_not_claimed: 'cross',
+  free_kick: 'freekick', corner: 'flag', shot_off_target: 'miss', shot_post: 'post',
+  shot_saved: 'target', goal: 'goal', chance_missed: 'chance', take_on: 'takeon', good_skill: 'star',
+  tackle: 'x', attempted_tackle: 'xdash', interception: 'intercept', clearance: 'up',
+  ball_recovery: 'recover', aerial_duel: 'aerial', challenge: 'challenge', fifty_fifty: 'fifty',
+  save: 'glove', claim: 'glove', keeper_pick_up: 'glove', punch: 'glove', smother: 'glove',
+  keeper_sweeper: 'glove', turnover: 'swap', dispossessed: 'down', error: 'bang',
+  ball_touch: 'touch', control: 'control', out_of_bounds: 'out', card: 'card',
+  sub_on: 'up', sub_off: 'down', offside_provoked: 'flag', caught_offside: 'flag', foul_throw_in: 'throw',
+};
+
+function drawEventIcon(kind, x, y, size, ink, cardFill) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(size / 5, size / 5);
+  ctx.strokeStyle = ink; ctx.fillStyle = ink;
+  ctx.lineWidth = 1.7; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const L = (...p) => { ctx.beginPath(); ctx.moveTo(p[0], p[1]); for (let i = 2; i < p.length; i += 2) ctx.lineTo(p[i], p[i + 1]); ctx.stroke(); };
+  const C = (cx, cy, r, f) => { ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); f ? ctx.fill() : ctx.stroke(); };
+  const arrow = (x1, y1, x2, y2) => {
+    L(x1, y1, x2, y2);
+    const a = Math.atan2(y2 - y1, x2 - x1);
+    L(x2 - 2.2 * Math.cos(a - 0.6), y2 - 2.2 * Math.sin(a - 0.6), x2, y2, x2 - 2.2 * Math.cos(a + 0.6), y2 - 2.2 * Math.sin(a + 0.6));
+  };
+  const flag = () => { L(-2, 4, -2, -4); ctx.beginPath(); ctx.moveTo(-2, -4); ctx.lineTo(3.5, -2); ctx.lineTo(-2, 0); ctx.closePath(); ctx.fill(); };
+  const target = () => { C(0, 0, 4); C(0, 0, 1.6, true); };
+  // Goalkeeper glove (used for every goalkeeper event): palm, four fingers, angled thumb and a cuff band.
+  const rr = (x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill(); };
+  const glove = () => {
+    rr(-2.9, -1, 5.8, 4.3, 1.3);
+    for (const [fx, top] of [[-2.1, -4], [-0.7, -5], [0.7, -5], [2.1, -4.1]]) rr(fx - 0.66, top, 1.32, -1 - top + 1.4, 0.66);
+    ctx.save(); ctx.translate(-2.6, 1.4); ctx.rotate(-0.75); rr(-0.7, -3, 1.4, 3.4, 0.7); ctx.restore();
+    rr(-2.7, 3.8, 5.4, 1.4, 0.5);
+  };
+  switch (kind) {
+    case 'arrow': arrow(-4, 0, 4, 0); break;
+    case 'flag': flag(); break;
+    case 'blocked': arrow(-4.5, 0, 1.5, 0); L(3.5, -3.5, 3.5, 3.5); break;
+    case 'cross': arrow(-4, 3, 3, -3); C(-3.5, -3, 1, true); break;
+    case 'freekick': C(-1, 1, 2.5); arrow(1, -1, 4.5, -4.5); break;
+    case 'miss': target(); L(-4.5, -4.5, 4.5, 4.5); break;
+    case 'post': L(-4, -4, -4, 4); L(4, -4, 4, 4); L(-4, -4, 4, -4); C(0, 1, 1.8, true); break;
+    case 'target': target(); break;
+    case 'goal': C(0, 0, 4); C(0, 0, 1.5, true); L(0, -4, 0, -6.2); break;
+    case 'chance': target(); L(-4, 4, 4, -4); break;
+    case 'takeon': ctx.beginPath(); ctx.arc(0, 1, 3.4, Math.PI * 1.1, Math.PI * 2.1); ctx.stroke(); L(3.4, 1.4, 3.4, -1.8); L(3.4, -1.8, 1, -0.4); break;
+    case 'star': ctx.beginPath(); for (let i = 0; i < 10; i++) { const r = i % 2 ? 1.7 : 4.6, a = -Math.PI / 2 + i * Math.PI / 5; ctx[i ? 'lineTo' : 'moveTo'](r * Math.cos(a), r * Math.sin(a)); } ctx.closePath(); ctx.fill(); break;
+    case 'x': L(-3.5, -3.5, 3.5, 3.5); L(3.5, -3.5, -3.5, 3.5); break;
+    case 'xdash': ctx.setLineDash([2, 2.2]); L(-3.5, -3.5, 3.5, 3.5); L(3.5, -3.5, -3.5, 3.5); break;
+    case 'intercept': L(0, -4, 0, 4); arrow(-4.5, 2, -0.5, 2); L(0.5, -2, 4.5, -2); break;
+    case 'up': arrow(0, 4, 0, -4); break;
+    case 'down': arrow(0, -4, 0, 4); break;
+    case 'recover': ctx.beginPath(); ctx.arc(0, 0, 3.6, -Math.PI * 0.2, Math.PI * 1.5); ctx.stroke(); L(2.2, -3.4, 3.6, -1.1); L(3.6, -1.1, 0.9, -0.9); break;
+    case 'aerial': L(-3, 1, 0, -2); L(0, -2, 3, 1); L(-3, 4, 0, 1); L(0, 1, 3, 4); break;
+    case 'challenge': arrow(-4.5, 0, -1, 0); arrow(4.5, 0, 1, 0); break;
+    case 'fifty': arrow(-1, 0, -4.5, 0); arrow(1, 0, 4.5, 0); L(0, -3, 0, 3); break;
+    case 'glove': glove(); break;
+    case 'swap': arrow(-4, -1.5, 4, -1.5); arrow(4, 1.8, -4, 1.8); break;
+    case 'bang': L(0, -4.5, 0, 1); C(0, 4, 0.4, true); break;
+    case 'touch': C(0, 0, 2, true); C(0, 0, 4.2); break;
+    case 'control': C(0, 0, 3.8); L(-4.8, 0, -2.4, 0); L(4.8, 0, 2.4, 0); L(0, -4.8, 0, -2.4); L(0, 4.8, 0, 2.4); break;
+    case 'out': L(-4, -4, -4, 4); arrow(-1.5, 0, 4.5, 0); break;
+    case 'card': ctx.beginPath(); ctx.roundRect(-2.8, -4, 5.6, 8, 0.9); ctx.fillStyle = cardFill || '#ffd23a'; ctx.fill(); break;
+    case 'throw': arrow(-1, 4, -1, -3); L(-3.5, -3, 2.5, -3); break;
+    default: C(0, 0, 2.5, true);
+  }
+  ctx.restore();
+}
+
+// Card colour from the event's qualifiers (31 yellow, 32 second yellow, 33 red); yellow if unknown.
+function cardColourFor(evt) {
+  const ids = (evt.quals || []).map(q => q.id);
+  return ids.includes(33) ? '#e53935' : '#ffd23a';
+}
+
+// Pill: dark capsule with a team-colour icon disc and the event name.
+// (cx, topY) is the top-centre of the pill.
+function drawEventLabel(evt, cx, topY, fontSize) {
+  const text = String(evt.t).replace(/_/g, ' ');
+  const team = D.colors[evt.g] || '#888888';
+  const ink  = isLightColour(team) ? '#111111' : '#ffffff';
   ctx.save();
   ctx.setLineDash([]);
   ctx.globalAlpha = 1;
-  ctx.font = '400 ' + fontSize + 'px ' + FONT_SANS;
-  const tw = ctx.measureText(text).width + 12;
-  const th = fontSize + 5;
-  ctx.fillStyle = 'rgba(0,0,0,0.72)';
-  ctx.beginPath(); ctx.roundRect(cx - tw / 2, topY, tw, th, 4); ctx.fill();
+  ctx.font = '700 ' + fontSize + 'px ' + FONT_SANS;
+  const tw = ctx.measureText(text).width;
+  const h  = fontSize + 9;
+  const w  = tw + fontSize * 2.6;
+  const x  = cx - w / 2;
+  ctx.fillStyle = 'rgba(0,0,0,0.78)';
+  ctx.beginPath(); ctx.roundRect(x, topY, w, h, h / 2); ctx.fill();
+  ctx.fillStyle = team;
+  ctx.beginPath(); ctx.arc(x + h / 2, topY + h / 2, h / 2 - 2.5, 0, 7); ctx.fill();
+  const kind = EVENT_ICON_FAMILY[evt.t];
+  drawEventIcon(kind || 'dot', x + h / 2, topY + h / 2, 4.4, ink, evt.t === 'card' ? cardColourFor(evt) : null);
   ctx.fillStyle    = '#fff';
-  ctx.textAlign    = 'center';
+  ctx.textAlign    = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, cx, topY + th / 2);
+  ctx.fillText(text, x + h + 3, topY + h / 2 + 0.5);
   ctx.restore();
 }
 
@@ -1908,7 +2158,7 @@ function drawEvent(fi) {
   const pos = actorPosFor(evt, fi);
   if (pos) {
     const [px, py] = tc(pos[0], pos[1]);
-    drawEventLabel(evt.t, px, py + 1.4 * T.sc + 4, 11);
+    drawEventLabel(evt, px, py + 1.4 * T.sc + 4, 11);
     return;
   }
 
@@ -1920,7 +2170,7 @@ function drawEvent(fi) {
   ctx.moveTo(cx - s, cy - s); ctx.lineTo(cx + s, cy + s);
   ctx.moveTo(cx + s, cy - s); ctx.lineTo(cx - s, cy + s);
   ctx.stroke();
-  drawEventLabel(evt.t, cx, cy - s - 20, 11);
+  drawEventLabel(evt, cx, cy - s - 20, 11);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1957,12 +2207,16 @@ function updateMeta(fi) {
 // feed there is nothing to count, so the score shows dashes rather than a misleading 0 - 0.
 const scoreboardGoals = (() => {
   const goals = D.events.filter(e => e.t === 'goal' && (e.ti === 0 || e.ti === 1))
-    .map(e => ({ fi: e.fi, ti: e.ti, own: (e.quals || []).some(q => q.id === 28) }));
+    .map(e => ({ fi: e.fi, ti: e.ti, own: (e.quals || []).some(q => q.id === 28),
+                 name: e.jn !== null && e.jn !== undefined ? (D.lineup[e.g + ':' + e.jn] || '#' + e.jn) : '' }));
   const final = [parseInt(D.lineup['match_home_score'], 10), parseInt(D.lineup['match_away_score'], 10)];
   const tally = (ownToOpponent) => goals.reduce((t, g) => { t[g.own && ownToOpponent ? 1 - g.ti : g.ti]++; return t; }, [0, 0]);
   const matches = (t) => t[0] === final[0] && t[1] === final[1];
   const ownToOpponent = !(goals.some(g => g.own) && !matches(tally(true)) && matches(tally(false)));
-  return goals.map(g => ({ fi: g.fi, scorer: g.own && ownToOpponent ? 1 - g.ti : g.ti }));
+  return goals.map(g => ({
+    fi: g.fi, scorer: g.own && ownToOpponent ? 1 - g.ti : g.ti, own: g.own, name: g.name,
+    minute: Math.floor(D.meta.time[g.fi] / 60) + (D.meta.period[g.fi] - 1) * 45,   // same minute as the clock shows at that moment
+  }));
 })();
 const scoreAt = (fi) => { const s = [0, 0]; for (const g of scoreboardGoals) { if (g.fi > fi) break; s[g.scorer]++; } return s; };
 const teamCode = (n) => {
@@ -1979,7 +2233,8 @@ BOARD_LOGO.src = '../assets/opta-logo.png';
 // The logo is much larger than its slot, and a single big downscale looks jagged. Halve it step by step
 // (smoothing on) down to the exact pixel size once, cache that, and draw it unscaled at whole pixels.
 let boardLogoCache = null;
-function boardLogoAt(w, h) {
+function boardLogoAt(w, h) {                       // w, h in CSS pixels; built at DPR times that for sharpness
+  w = Math.round(w * DPR); h = Math.round(h * DPR);
   const key = w + 'x' + h;
   if (boardLogoCache && boardLogoCache.key === key) return boardLogoCache.canvas;
   let src = BOARD_LOGO, sw = BOARD_LOGO.naturalWidth, sh = BOARD_LOGO.naturalHeight;
@@ -2000,20 +2255,62 @@ function boardLogoAt(w, h) {
   return out;
 }
 
+// Goal banner: drops from under the scoreboard when a goal is scored, stays about 6 seconds, then lifts away.
+// Its state depends only on the frame number, so it also shows correctly when scrubbing or replaying.
+const GOAL_BANNER_IN = 12, GOAL_BANNER_HOLD = 150, GOAL_BANNER_OUT = 12;     // frames at 25 Hz: 0.5 s, 6 s, 0.5 s
+function goalBannerAt(fi) {
+  let goal = null;
+  for (const g of scoreboardGoals) { if (g.fi > fi) break; goal = g; }
+  if (!goal) return null;
+  const age = fi - goal.fi;
+  if (age >= GOAL_BANNER_IN + GOAL_BANNER_HOLD + GOAL_BANNER_OUT) return null;
+  const ease = (x) => 1 - Math.pow(1 - x, 3);
+  const t = age < GOAL_BANNER_IN ? ease(age / GOAL_BANNER_IN)
+          : age < GOAL_BANNER_IN + GOAL_BANNER_HOLD ? 1
+          : 1 - ease((age - GOAL_BANNER_IN - GOAL_BANNER_HOLD) / GOAL_BANNER_OUT);
+  return { goal, t };
+}
+
+// True when any source has a tracked ball coordinate at this frame (the data has no ball-status field,
+// so a frame without ball coordinates is treated as the ball being out of play).
+const _ballEntity = D.entities.find(e => e.g === 4);
+function ballTracked(fi) {
+  if (!_ballEntity) return false;
+  for (const src of D.sources) if (getPos(_ballEntity, src.id, fi)) return true;
+  return false;
+}
+
+// Match title in the footer bar under the pitch: teams | competition | venue | date (whatever is known).
+// Drawn on the canvas so it is part of image, GIF and video exports. The font shrinks to fit narrow pictures.
+function drawMatchFooter() {
+  const L = D.lineup || {};
+  const home = L['teamname_1'] || '', away = L['teamname_2'] || '';
+  const parts = [(home || away) ? (home + ' vs ' + away).trim() : '', L['match_comp'] || '', L['match_venue'] || '', L['match_date'] || ''].filter(Boolean);
+  if (!parts.length) return;
+  const text = parts.join('   |   ');
+  const yMid = T.oy + (T.Wp + 2 * MARGIN) * T.sc + T.foot / 2;
+  let size = 13;
+  ctx.save();
+  ctx.font = '500 ' + size + 'px ' + FONT_SANS;
+  while (size > 9 && ctx.measureText(text).width > T.barW - 24) { size -= 0.5; ctx.font = '500 ' + size + 'px ' + FONT_SANS; }
+  ctx.fillStyle = '#c9c9cf'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, T.ox + T.barW / 2, yMid);
+  ctx.restore();
+}
+
 function drawScoreboard(fi) {
   const mm = String(Math.floor(D.meta.time[fi] / 60) + (D.meta.period[fi] - 1) * 45).padStart(2, '0');
   const ss = String(Math.floor(D.meta.time[fi] % 60)).padStart(2, '0');
   const known = D.events.length > 0;
   const sc2 = scoreAt(fi);
 
-  const bandH = MARGIN * T.sc;                                   // the grass strip above the touchline
-  const h = Math.max(22, Math.min(40, bandH * 0.8));
+  const h = Math.round(Math.min(T.head * 0.78, T.barW * 0.96 / 10.45));   // board height inside the header bar (and never wider than the picture)
   const widths = [2.5 * h, 2.3 * h, 2.2 * h, 2.3 * h];            // clock | home | score | away
   const tabW = 1.15 * h;                                         // white tab with the brand logo, before the clock
   const total = tabW + widths.reduce((a, b) => a + b, 0);
-  const xTab = T.ox + (T.L + 2 * MARGIN) * T.sc / 2 - total / 2;
+  const xTab = T.ox + T.barW / 2 - total / 2;
   const x0 = xTab + tabW;                                        // the clock and everything after it start here
-  const y0 = T.oy + (bandH - h) / 2;
+  const y0 = T.top + (T.head - h) / 2;
   const NAVY = '#3F1568', PANEL = '#f3f3f6', INK = '#16161d';
 
   const rr = (x, y, w, hh, r, fill) => {
@@ -2039,13 +2336,28 @@ function drawScoreboard(fi) {
   ctx.fillStyle = '#ffffff'; ctx.fillRect(xTab, y0, tabW, h);
   if (BOARD_LOGO.complete && BOARD_LOGO.naturalWidth > 0) {
     const lh = h * 0.68, lw = lh * BOARD_LOGO.naturalWidth / BOARD_LOGO.naturalHeight;
-    ctx.drawImage(boardLogoAt(Math.round(lw), Math.round(lh)), Math.round(xTab + (tabW - lw) / 2), Math.round(y0 + (h - lh) / 2));
+    ctx.drawImage(boardLogoAt(lw, lh), Math.round(xTab + (tabW - lw) / 2), Math.round(y0 + (h - lh) / 2), Math.round(lw), Math.round(lh));
   }
 
   // clock
 
   ctx.fillStyle = NAVY; ctx.fillRect(x0, y0, widths[0], h);
-  text(mm + ':' + ss, x0 + widths[0] / 2, y0 + h / 2, h * 0.5, '#ffffff');
+  text(mm + ':' + ss, x0 + widths[0] / 2, y0 + h * (_ballEntity ? 0.36 : 0.5), h * 0.5, '#ffffff');
+
+  // ball status strip under the clock: in play while the ball has tracked coordinates in this frame
+  const inPlay = ballTracked(fi);
+  if (_ballEntity) {                                              // no ball in the data: no status to show
+    ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(x0, y0 + h * 0.64, widths[0], h * 0.36);
+    const label = inPlay ? 'IN PLAY' : 'BALL OUT', col = inPlay ? '#7dffa8' : '#ff9a9e';
+    const fsz = h * 0.16, dr = h * 0.05, gap = h * 0.09, yy = y0 + h * 0.82;
+    ctx.font = '700 ' + fsz + 'px ' + FONT_SANS; ctx.textBaseline = 'middle'; ctx.letterSpacing = '0.1em';
+    const tw = ctx.measureText(label).width, full = tw + dr * 2 + gap;
+    let lx = x0 + widths[0] / 2 - full / 2;
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(lx + dr, yy, dr, 0, 2 * Math.PI); ctx.fill();
+    lx += dr * 2 + gap;
+    ctx.textAlign = 'left'; ctx.fillText(label, lx, yy);
+    ctx.letterSpacing = '0px';
+  }
 
   // team code panels with the team colour underneath
   const codePanel = (n, x, w) => {
@@ -2068,6 +2380,28 @@ function drawScoreboard(fi) {
   ctx.fillStyle = '#FAA51A';                                      // brand orange
   ctx.beginPath(); ctx.arc(xs + widths[2] / 2, cy, Math.max(2, h * 0.07), 0, 2 * Math.PI); ctx.fill();
   ctx.restore();
+
+  // goal banner under the board, in the scoring team's colour (second colour as a stripe along the bottom)
+  const gb = goalBannerAt(fi);
+  if (gb && gb.t > 0.06) {
+    const g = gb.goal, team = g.scorer + 1;
+    const c1 = D.colors[String(team)] || '#888888', c2 = teamColour2(team);
+    const bw = total * 0.78, bh = h * 0.75, bx = xTab + (total - bw) / 2;
+    const by = y0 + h + 3 - (1 - gb.t) * (bh + 3);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(bx - 6, y0 + h, bw + 12, bh + 14); ctx.clip();       // emerges from under the board
+    ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 2;
+    rr(bx, by, bw, bh, bh * 0.22, c1);
+    ctx.shadowColor = 'transparent';
+    if (c2) { ctx.save(); ctx.beginPath(); ctx.rect(bx, by + bh - bh * 0.12, bw, bh * 0.12); ctx.clip(); rr(bx, by, bw, bh, bh * 0.22, c2); ctx.restore(); }
+    const ink = isLightColour(c1) ? '#16161d' : '#ffffff';
+    ctx.font = '700 ' + (bh * 0.5) + 'px ' + FONT_SANS;
+    ctx.fillStyle = ink; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.fillText(g.own ? 'OWN GOAL' : 'GOAL', bx + bh * 0.5, by + bh / 2);
+    ctx.textAlign = 'center';
+    ctx.fillText((g.name ? g.name + '  ' : '') + g.minute + "'", bx + bw * 0.64, by + bh / 2);
+    ctx.restore();
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2501,6 +2835,7 @@ function _pan3D(rightSteps, fwdSteps) {
 
 function enter3D() {
   canvas.style.display = 'none';
+  setTitleVisible(true);                         // the 3D view has no header/footer bars, so show the HTML title
   if (!renderer3D) {
     _loadThree(() => { _init3DScene(); _start3DLoop(); });
   } else {
@@ -2511,6 +2846,7 @@ function enter3D() {
 
 function exit3D() {
   _stop3DLoop();
+  setTitleVisible(false);
   if (renderer3D) renderer3D.domElement.style.display = 'none';
   canvas.style.display = '';
   render(currentFi);
@@ -2534,8 +2870,10 @@ function render(fi) {
   // 3D RAF loop handles visual update; skip 2D canvas drawing
   if (is3D) return;
 
-  const W = canvas.width, H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
+  const W = canvas.width / DPR, H = canvas.height / DPR;           // logical (CSS pixel) size
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   setupTransform(W, H);
   drawPitch(W, H);
   if (showEvents) drawEvent(fi);
@@ -2544,13 +2882,14 @@ function render(fi) {
   drawOverloadOverlay(fi);
   if (showTails || showRunHighlights) drawTails(fi);
   drawRunHighlights(fi);
+  drawPossessionHighlight(fi, 'ring');   // possession capsule, drawn under the players so the disc sits on its left end
   drawEntities(fi, 'players');
   drawRunInfo(fi);
   drawPressureInfo(fi);
   drawPressures(fi);
-  drawPossessionHighlight(fi);
   drawEntities(fi, 'ball');   // ball above the possession highlight
   drawScoreboard(fi);
+  drawMatchFooter();
   if (hoveredEntity) renderTooltip(hoveredEntity, _lastMouseX, _lastMouseY);
 }
 
@@ -2807,8 +3146,9 @@ inpSec.addEventListener('change', () => {
 function resizeCanvas() {
   const wrap = document.getElementById('pitch-wrap');
   const W = wrap.clientWidth, H = wrap.clientHeight;
-  canvas.width  = W;
-  canvas.height = H;
+  DPR = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
+  canvas.width  = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
   if (is3D && renderer3D) {
     renderer3D.setSize(W, H);
     camera3D.aspect = W / H;
@@ -2886,6 +3226,12 @@ for (const g of [1, 2]) {
   pick.addEventListener('input', () => { remembered = pick.value; D.colors2[g] = pick.value; render(currentFi); });
 }
 
+// The HTML title above the canvas is used in the 3D view only; in 2D the title is drawn in the footer bar.
+function setTitleVisible(on) {
+  const el = document.getElementById('match-title');
+  if (el && el.textContent.trim()) el.style.display = on ? '' : 'none';
+}
+
 // ── Match title bar ───────────────────────────────────────────────────────────
 (function () {
   const L        = D.lineup || {};
@@ -2906,6 +3252,7 @@ for (const g of [1, 2]) {
   if (date) html += '<span class="match-sep"> | </span><span class="match-neutral">' + date + '</span>';
 
   titleEl.innerHTML = html;
+  titleEl.style.display = 'none';
 })();
 
 colorPick1.addEventListener('input', () => { D.colors['1'] = colorPick1.value; _sync3DColors(); render(currentFi); });
@@ -3503,7 +3850,7 @@ function _closeAllBottomPanels() {
       // so the stream is never empty when recording begins.
       stopPlayback();
       render(frames[0]);
-      cropCtx.drawImage(canvas, pr.x, pr.y, pr.w, pr.h, 0, 0, pr.w, pr.h);
+      cropCtx.drawImage(canvas, pr.x * DPR, pr.y * DPR, pr.w * DPR, pr.h * DPR, 0, 0, pr.w, pr.h);
       if (track.requestFrame) track.requestFrame();
 
       recorder.start();
@@ -3520,7 +3867,7 @@ function _closeAllBottomPanels() {
         }
         stopPlayback();
         render(frames[idx]);
-        cropCtx.drawImage(canvas, pr.x, pr.y, pr.w, pr.h, 0, 0, pr.w, pr.h);
+        cropCtx.drawImage(canvas, pr.x * DPR, pr.y * DPR, pr.w * DPR, pr.h * DPR, 0, 0, pr.w, pr.h);
         // Push this canvas state as a video frame — synchronises capture with render
         if (track.requestFrame) track.requestFrame();
         setStatus('Recording frame ' + (idx + 1) + ' / ' + total);
@@ -3582,7 +3929,7 @@ function _closeAllBottomPanels() {
         render(frames[idx]);
         tmpCtx.clearRect(0, 0, W, H);
         // Blit only the pitch region from the main canvas, scaled to output size
-        tmpCtx.drawImage(canvas, pr.x, pr.y, pr.w, pr.h, 0, 0, W, H);
+        tmpCtx.drawImage(canvas, pr.x * DPR, pr.y * DPR, pr.w * DPR, pr.h * DPR, 0, 0, W, H);
         gif.addFrame(tmpCtx, { copy: true, delay });
         idx++;
         setStatus('Capturing frame ' + idx + ' / ' + total);

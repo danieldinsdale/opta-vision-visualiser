@@ -1,6 +1,8 @@
 // Page logic: choose files (or fetch via the optional local server), parse in a worker, hand the
 // payload to the animation frame. Everything runs in the browser; files are never uploaded.
 import { MAX_INPUT_BYTES } from './lib/limits.js';
+import { EPTS_TXT_SUFFIX, EPTS_XML_SUFFIX } from './lib/archive.js';
+import { classifyName, scanFiles, summarise } from './lib/package.js';
 import { getVodUrls, validateStreamUrl } from './vod-provider.js';
 
 const $ = (id) => document.getElementById(id);
@@ -8,8 +10,8 @@ const els = {
   status: $('status'), warnings: $('warnings'), frame: $('frame'), empty: $('empty'), emptyText: $('empty-text'),
   loadBtn: $('load-btn'), bundle: $('f-bundle'), txt: $('f-txt'), xml: $('f-xml'),
   events: $('f-events'), stats: $('f-stats'), phases: $('f-phases'), runs: $('f-runs'),
-  modeSwitch: $('mode-switch'), modeLocal: $('mode-local'), modeSdapi: $('mode-sdapi'),
-  localPanel: $('local-panel'), sdapiPanel: $('sdapi-panel'),
+  modeSwitch: $('mode-switch'), modePkg: $('mode-pkg'), modeLocal: $('mode-local'), modeSdapi: $('mode-sdapi'),
+  pkgPanel: $('pkg-panel'), localPanel: $('local-panel'), sdapiPanel: $('sdapi-panel'),
 };
 
 // Sidebar show/hide
@@ -68,7 +70,7 @@ function runWorker(inputs, options) {
 }
 
 async function loadMatch(inputs) {
-  if (busy) return;
+  if (busy) return false;
   busy = true;
   setWarnings([]);
   try {
@@ -80,8 +82,10 @@ async function loadMatch(inputs) {
     els.empty.hidden = true;
     setWarnings(warnings);
     setStatus('');
+    return true;
   } catch (e) {
     setStatus(e.message, true);
+    return false;
   } finally {
     busy = false;
   }
@@ -92,21 +96,126 @@ async function bytesOf(file) {
   return new Uint8Array(await file.arrayBuffer());
 }
 
-// ── Local files ───────────────────────────────────────────────────────────────
+// ── Data package and own files ────────────────────────────────────────────────
+// Whatever the user gives us (a zip, a tar.gz, loose files, a folder) is searched by file name for the
+// tracking data and the optional feeds, so they never have to say which file is which.
 
-const refreshLoadButton = () => { els.loadBtn.disabled = !(els.bundle.files[0] || (els.txt.files[0] && els.xml.files[0])); };
-for (const el of [els.bundle, els.txt, els.xml]) el.addEventListener('change', refreshLoadButton);
+const MAX_DROPPED_FILES = 2000;
+const FORCED_NAMES = {
+  txt: `manual${EPTS_TXT_SUFFIX}`, xml: `manual${EPTS_XML_SUFFIX}`, events: 'remoteevents.json',
+  matchstats: 'matchstats.json', phases: 'remotephasesofplay.json', runs: 'remoteplayerruns.json',
+};
+
+async function filesFromDrop(dt) {
+  const entries = [...(dt.items || [])].map((i) => (i.webkitGetAsEntry ? i.webkitGetAsEntry() : null)).filter(Boolean);
+  if (!entries.length) return [...dt.files];
+  const out = [];
+  const walk = async (entry) => {
+    if (out.length > MAX_DROPPED_FILES) throw new Error('That folder contains too many files.');
+    if (entry.isFile) out.push(await new Promise((res, rej) => entry.file(res, rej)));
+    else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      for (;;) {
+        const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+        if (!batch.length) break;
+        for (const e of batch) await walk(e);
+      }
+    }
+  };
+  for (const e of entries) await walk(e);
+  return out;
+}
+
+function renderResult(host, { title, meta, summary, busy }) {
+  const card = Object.assign(document.createElement('div'), { className: 'pkg-card' });
+  card.append(Object.assign(document.createElement('div'), { className: 'pkg-name', textContent: title }),
+    Object.assign(document.createElement('div'), { className: 'pkg-meta', textContent: meta }));
+  if (busy) {
+    const bar = Object.assign(document.createElement('div'), { className: 'bar' });
+    bar.append(document.createElement('i'));
+    card.append(bar);
+  }
+  if (summary) {
+    const ul = document.createElement('ul');
+    for (const it of summary.items) {
+      const li = document.createElement('li');
+      const mark = Object.assign(document.createElement('span'), { className: `mark ${it.state}`, textContent: it.state === 'found' ? '✓' : it.state === 'absent' ? '–' : '!' });
+      const tag = Object.assign(document.createElement('span'), { className: 'tag', textContent: it.note || '' });
+      li.title = it.name || '';
+      li.append(mark, Object.assign(document.createElement('span'), { textContent: it.label }), tag);
+      ul.append(li);
+    }
+    card.append(ul);
+  }
+  host.replaceChildren(card);
+  if (summary) {
+    for (const e of summary.errors) host.append(Object.assign(document.createElement('div'), { className: 'notice err', textContent: e }));
+    for (const n of summary.notes) host.append(Object.assign(document.createElement('div'), { className: /different match|More than one/.test(n) ? 'notice warn' : 'notice', textContent: n }));
+  }
+  host.hidden = false;
+}
+
+function describeFiles(files) {
+  const total = files.reduce((a, f) => a + f.size, 0);
+  const size = total >= 1024 * 1024 ? `${(total / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(total / 1024))} KB`;
+  return { title: files.length === 1 ? files[0].name : `${files.length} files`, meta: size };
+}
+
+// One state per panel. Newest files go first, so choosing a replacement file wins over an earlier one.
+function makePanel({ host, drop, input, autoLoad }) {
+  const state = { staged: [], summary: null, chain: Promise.resolve() };
+  async function run(fileList, role) {
+    const files = [...fileList];
+    if (!files.length) return;
+    const { title, meta } = describeFiles(files);
+    renderResult(host, { title, meta: `${meta} · Unpacking…`, busy: true });
+    setStatus('');
+    try {
+      const fresh = [];
+      for (const f of files) {
+        const own = f.webkitRelativePath || f.name;
+        // a file chosen in a specific picker counts as that item even if its name is not the usual one
+        const c = classifyName(own);
+        fresh.push({ name: role && !(c && c.role === role) ? FORCED_NAMES[role] : own, bytes: await bytesOf(f), size: f.size });
+      }
+      const names = new Set(fresh.map((f) => f.name));
+      state.staged = [...fresh, ...state.staged.filter((f) => !names.has(f.name))];
+      const summary = summarise(await scanFiles(state.staged));
+      state.summary = summary;
+      const all = describeFiles(state.staged);
+      renderResult(host, { title: all.title, meta: all.meta, summary });
+      if (autoLoad && summary.ready) {
+        host.querySelector('.pkg-meta').textContent = `${all.meta} · Loading…`;
+        const ok = await loadMatch(summary.inputs);
+        host.querySelector('.pkg-meta').textContent = `${all.meta} · ${ok ? 'Loaded. Drop another package any time to replace it.' : 'Could not be loaded'}`;
+      }
+    } catch (e) {
+      state.summary = null;
+      renderResult(host, { title, meta, summary: { items: [], errors: [e.message], notes: [] } });
+    }
+    state.onChange && state.onChange(state.summary);
+  }
+  input.addEventListener('change', () => { state.stage(input.files); input.value = ''; });
+  for (const ev of ['dragenter', 'dragover']) drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); });
+  for (const ev of ['dragleave', 'dragend']) drop.addEventListener(ev, () => drop.classList.remove('over'));
+  drop.addEventListener('drop', async (e) => {
+    e.preventDefault(); drop.classList.remove('over');
+    try { state.stage(await filesFromDrop(e.dataTransfer)); } catch (err) { setStatus(err.message, true); }
+  });
+  state.stage = (fileList, role) => { const files = [...fileList]; state.chain = state.chain.then(() => run(files, role)); return state.chain; };
+  return state;
+}
+
+const pkgPanel = makePanel({ host: $('pkg-result'), drop: $('pkg-drop'), input: $('f-package'), autoLoad: true });
+const ownPanel = makePanel({ host: $('own-result'), drop: $('own-drop'), input: $('f-own'), autoLoad: false });
+ownPanel.onChange = (summary) => { els.loadBtn.disabled = !(summary && summary.ready); };
+// The individual pickers feed the same staging, so the checklist and the load button stay in step
+for (const [el, role] of [[els.bundle, null], [els.txt, 'txt'], [els.xml, 'xml'], [els.events, 'events'], [els.stats, 'matchstats'], [els.phases, 'phases'], [els.runs, 'runs']]) {
+  el.addEventListener('change', () => { ownPanel.stage(el.files, role); });
+}
 
 els.loadBtn.addEventListener('click', async () => {
-  try {
-    setStatus('Reading files...');
-    const optional = { events: els.events, matchstats: els.stats, phases: els.phases, runs: els.runs };
-    const inputs = {};
-    if (els.bundle.files[0]) inputs.bundle = await bytesOf(els.bundle.files[0]);
-    else { inputs.txt = await bytesOf(els.txt.files[0]); inputs.xml = await bytesOf(els.xml.files[0]); }
-    for (const [key, el] of Object.entries(optional)) if (el.files[0]) inputs[key] = await bytesOf(el.files[0]);
-    await loadMatch(inputs);
-  } catch (e) { setStatus(e.message, true); }
+  if (ownPanel.summary && ownPanel.summary.ready) await loadMatch(ownPanel.summary.inputs);
 });
 
 // ── Optional SDAPI (only when the local server is running) ────────────────────
@@ -168,14 +277,22 @@ async function fetchFromSdapi() {
   } catch (e) { setStatus(e.message, true); }
 }
 
-function setMode(sdapi) {
-  els.localPanel.hidden = sdapi; els.sdapiPanel.hidden = !sdapi;
-  els.modeLocal.classList.toggle('on', !sdapi); els.modeSdapi.classList.toggle('on', sdapi);
-  els.modeLocal.setAttribute('aria-selected', String(!sdapi)); els.modeSdapi.setAttribute('aria-selected', String(sdapi));
-  els.emptyText.textContent = sdapi
-    ? 'Enter your SDAPI key and an Opta Game UUID in the sidebar, then click Fetch from SDAPI.'
-    : 'Choose an EPTS dataset in the sidebar, then click Load data.';
+function setMode(mode) {
+  const panels = { pkg: els.pkgPanel, local: els.localPanel, sdapi: els.sdapiPanel };
+  const tabs = { pkg: els.modePkg, local: els.modeLocal, sdapi: els.modeSdapi };
+  for (const k of Object.keys(panels)) {
+    panels[k].hidden = k !== mode;
+    tabs[k].classList.toggle('on', k === mode);
+    tabs[k].setAttribute('aria-selected', String(k === mode));
+  }
+  els.emptyText.textContent = {
+    pkg: 'Drop your data package into the sidebar to get started.',
+    local: 'Drop your match files into the sidebar, then click Load data.',
+    sdapi: 'Enter your SDAPI key and an Opta Game UUID in the sidebar, then click Fetch from SDAPI.',
+  }[mode];
 }
+els.modePkg.addEventListener('click', () => setMode('pkg'));
+els.modeLocal.addEventListener('click', () => setMode('local'));
 
 async function initSdapi() {
   let config;
@@ -184,12 +301,11 @@ async function initSdapi() {
     if (!res.ok || !(res.headers.get('content-type') || '').includes('json')) return;   // static hosting: no server
     config = await res.json();
   } catch { return; }
-  els.modeSwitch.hidden = false;
+  els.modeSdapi.hidden = false;
   $('cache-note').textContent = `Cache folder: ${config.cacheDir}`;
   renderFeeds();
   $('game-id').addEventListener('input', renderFeeds);
-  els.modeLocal.addEventListener('click', () => setMode(false));
-  els.modeSdapi.addEventListener('click', () => setMode(true));
+  els.modeSdapi.addEventListener('click', () => setMode('sdapi'));
   $('fetch-btn').addEventListener('click', fetchFromSdapi);
   $('delete-cache').addEventListener('click', async () => {
     try { await api('api/cache/delete', { gameId: $('game-id').value.trim() }); feedStatus = null; renderFeeds(); $('delete-cache').hidden = true; setStatus('Cached files deleted.'); }

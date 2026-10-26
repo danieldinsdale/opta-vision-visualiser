@@ -13,25 +13,27 @@ cd web
 npm start        # http://127.0.0.1:8765
 ```
 
-Open the page, choose an EPTS dataset in the sidebar and click **Load data**.
+Open the page and drop your data package (the `.zip` you were sent) onto the sidebar. The tracking data and any events, match stats, phases and runs are found automatically and the match loads straight away. If you have your own files instead, use the **My own files** tab.
 
 You can also serve the `web` folder with any static web server. Files are parsed in a Web Worker in your browser and **never uploaded**.
 
 ### SDAPI (optional, needs local server)
 
-Run `npm start` in `web/` and open `http://127.0.0.1:8765`. The sidebar then offers **Local files** or **SDAPI**. For SDAPI, enter your **SDAPI key**, an optional **SDAPI referral** (only if the API answers HTTP 403) and the **Opta Game UUID**, then click **Fetch from SDAPI**.
+Run `npm start` in `web/` and open `http://127.0.0.1:8765`. The sidebar then also offers an **SDAPI** tab next to **Data package** and **My own files**. For SDAPI, enter your **SDAPI key**, an optional **SDAPI referral** (only if the API answers HTTP 403) and the **Opta Game UUID**, then click **Fetch from SDAPI**.
 
 ## Input files
 
-Input files are listed below, with each optional file adding extra functionality to the visualiser.
+The easiest route is a **data package**: one `.zip` holding the EPTS data and any of the optional feeds, in any folder layout. Files are recognised **by name**, so none of them has to be picked one by one. The same rules apply to loose files and folders dropped on **My own files**.
 
-| Input | Required | Format |
-|-------|----------|--------|
-| EPTS tracking | Yes | `*_epts_raw_data.txt` plus `*_epts_format_specification.xml` (25 Hz), chosen separately **or** as one `.tar.gz` / `.tar` / `.zip` bundle containing both |
-| Events | No | `remoteevents` JSON feed. Events are placed on the tracking timeline by event id (carried on EPTS ball rows), falling back to video time, then match clock |
-| Match stats | No | `matchstats` JSON feed: team names, score, competition, kit colours, player names |
-| Phases of play | No | `remotephasesofplay` JSON feed (or the extracted `phase` list) |
-| Player runs | No | `remoteplayerruns` JSON feed (or the extracted `run` list) |
+| Input | Required | Name it is matched by | What it adds |
+|-------|----------|-----------------------|--------------|
+| EPTS tracking | Yes | `<id>_epts_raw_data.txt` and `<id>_epts_format_specification.xml` (25 Hz), loose or inside a `.tar.gz` / `.tar` / `.zip` within the package | Player and ball positions |
+| Events | No | `remoteevents_<id>.json` (or `remoteevents.json`) | Event labels and the live score. Events are placed on the tracking timeline by event id (carried on EPTS ball rows), falling back to video time, then match clock |
+| Match stats | No | `matchstats_<id>.json` | Team names and codes, score, competition, venue, kit colours, player names |
+| Phases of play | No | `remotephasesofplay_<id>.json` (`phases_<id>.json` also accepted) | Phase overlay and panel (the feed, or the extracted `phase` list) |
+| Player runs | No | `remoteplayerruns_<id>.json` (`runs_<id>.json` also accepted) | Run highlights and panel (the feed, or the extracted `run` list) |
+
+Names ignore letter case and macOS junk (`__MACOSX`, `._*`, `.DS_Store`). The sidebar lists what was found and what was left out. A feed whose game id differs from the tracking data's is flagged and not used, and missing optional files only switch off the overlays that need them. Archives may be nested two deep (a `.zip` containing a `.tar.gz`), and limits on file count and unpacked size apply.
 
 ### Local cache (SDAPI)
 

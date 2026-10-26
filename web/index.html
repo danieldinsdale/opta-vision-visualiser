@@ -15,21 +15,39 @@
     <button type="button" id="side-close" class="icon-btn" aria-label="Hide sidebar" title="Hide sidebar" aria-controls="sidebar" aria-expanded="true">&#8249;</button>
   </div>
 
-  <div id="mode-switch" class="segmented" role="tablist" aria-label="Data source" hidden>
-    <button type="button" id="mode-local" class="on" role="tab" aria-selected="true">Local files</button>
-    <button type="button" id="mode-sdapi" role="tab" aria-selected="false">SDAPI</button>
+  <div id="mode-switch" class="segmented" role="tablist" aria-label="Data source">
+    <button type="button" id="mode-pkg" class="on" role="tab" aria-selected="true">Data package</button>
+    <button type="button" id="mode-local" role="tab" aria-selected="false">My own files</button>
+    <button type="button" id="mode-sdapi" role="tab" aria-selected="false" hidden>SDAPI</button>
   </div>
 
-  <!-- Local files -->
-  <section id="local-panel">
-    <h2 class="sec">EPTS tracking data</h2>
-    <label class="file">Bundle (.tar.gz / .zip)<input type="file" id="f-bundle" accept=".gz,.tgz,.tar,.zip"></label>
-    <p class="hint">or the two files separately:</p>
-    <label class="file">EPTS raw data (.txt)<input type="file" id="f-txt" accept=".txt"></label>
-    <label class="file">EPTS format specification (.xml)<input type="file" id="f-xml" accept=".xml"></label>
+  <!-- Data package: one .zip, everything found automatically -->
+  <section id="pkg-panel">
+    <h2 class="sec">Load a match</h2>
+    <div class="drop" id="pkg-drop">
+      <div class="drop-icon" aria-hidden="true">&#8682;</div>
+      <strong>Drop your data package here</strong>
+      <span class="hint">The .zip we sent you. Tracking, events, stats, phases and runs are found automatically.</span>
+      <label class="drop-btn">Choose .zip file<input type="file" id="f-package" accept=".zip,.gz,.tgz,.tar"></label>
+    </div>
+    <div id="pkg-result" hidden></div>
+  </section>
+
+  <!-- Own files: drop or choose any of the match files -->
+  <section id="local-panel" hidden>
+    <h2 class="sec">Drop your files or a folder</h2>
+    <div class="drop" id="own-drop">
+      <div class="drop-icon" aria-hidden="true">&#8682;</div>
+      <strong>Drop files here</strong>
+      <span class="hint">EPTS data and spec (.txt and .xml), or a .tar.gz / .zip of them, plus any JSON feeds. Names are recognised automatically.</span>
+      <label class="drop-btn">Choose files<input type="file" id="f-own" multiple accept=".zip,.gz,.tgz,.tar,.txt,.xml,.json"></label>
+    </div>
+    <div id="own-result" hidden></div>
     <details>
-      <summary>Events and context (optional)</summary>
-      <p class="hint">JSON feeds exactly as returned by the API (or the extracted list for phases/runs).</p>
+      <summary>Choose files individually</summary>
+      <label class="file">Bundle (.tar.gz / .zip)<input type="file" id="f-bundle" accept=".gz,.tgz,.tar,.zip"></label>
+      <label class="file">EPTS raw data (.txt)<input type="file" id="f-txt" accept=".txt"></label>
+      <label class="file">EPTS format specification (.xml)<input type="file" id="f-xml" accept=".xml"></label>
       <label class="file">Events (remoteevents)<input type="file" id="f-events" accept=".json"></label>
       <label class="file">Match stats (matchstats)<input type="file" id="f-stats" accept=".json"></label>
       <label class="file">Phases of play (remotephasesofplay)<input type="file" id="f-phases" accept=".json"></label>
@@ -66,12 +84,13 @@
 
   <p id="status" role="status" aria-live="polite"></p>
   <ul id="warnings"></ul>
+  <p class="hint priv">Your data stays in this browser. Nothing is uploaded.</p>
 </aside>
 
 <main id="stage">
   <button type="button" id="side-open" class="icon-btn" aria-label="Show sidebar" title="Show sidebar" aria-controls="sidebar" aria-expanded="false" hidden>&#8250;</button>
   <div id="empty">
-    <p id="empty-text">Choose an EPTS dataset in the sidebar, then click <strong>Load data</strong>.</p>
+    <p id="empty-text">Drop your data package into the sidebar to get started.</p>
     <p class="hint">Everything runs in your browser. Files are not uploaded anywhere.</p>
   </div>
   <iframe id="frame" title="Pitch animation" hidden></iframe>
