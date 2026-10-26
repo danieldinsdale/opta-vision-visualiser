@@ -15,6 +15,8 @@ npm start        # http://127.0.0.1:8765
 
 Open the page and drop your data package (the `.zip` you were sent) onto the sidebar. The tracking data and any events, match stats, phases and runs are found automatically and the match loads straight away. If you have your own files instead, use the **My own files** tab.
 
+If port 8765 is busy (often an earlier copy still running in another terminal), the server tries the next few ports and prints the address to open. To choose one yourself: `OPTA_VISUALISER_PORT=9000 npm start` (on Windows PowerShell: `$env:OPTA_VISUALISER_PORT=9000; npm start`).
+
 You can also serve the `web` folder with any static web server. Files are parsed in a Web Worker in your browser and **never uploaded**.
 
 ### SDAPI (optional, needs local server)
