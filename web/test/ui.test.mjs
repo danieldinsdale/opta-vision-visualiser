@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import { buildMatchPayload } from '../lib/pipeline.js';
-import { fixture } from './helpers.mjs';
+import { fixture, samplePackage } from './helpers.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const html = readFileSync(join(root, 'index.html'), 'utf8').replace(/<script[^>]*src="main.js"[^>]*><\/script>/, '');
@@ -49,13 +49,16 @@ const json = (obj) => new Response(JSON.stringify(obj), { status: 200, headers: 
 test('static hosting: no SDAPI controls; files enable Load; payload reaches the frame', async () => {
   const window = await boot(notFound);
   const $ = (id) => window.document.getElementById(id);
-  assert.equal($('mode-switch').hidden, true);
+  assert.equal($('mode-sdapi').hidden, true);                       // no server: no SDAPI tab
+  $('mode-local').click();
   assert.equal($('load-btn').disabled, true);
   pick(window, 'f-txt', fakeFile('a_epts_raw_data.txt', fixture('raw.txt')));
+  await until(() => $('own-result').textContent.includes('No EPTS tracking found'));
   assert.equal($('load-btn').disabled, true);                       // needs the spec too
   pick(window, 'f-xml', fakeFile('a_epts_format_specification.xml', fixture('spec.xml')));
   pick(window, 'f-events', fakeFile('events.json', fixture('events.json')));
-  assert.equal($('load-btn').disabled, false);
+  await until(() => !$('load-btn').disabled);
+  assert.match($('own-result').textContent, /Events/);
   $('load-btn').click();
   await until(() => window.OPTA_PAYLOAD);
   assert.ok(window.OPTA_PAYLOAD.frameIds.length > 0);
@@ -69,8 +72,10 @@ test('static hosting: no SDAPI controls; files enable Load; payload reaches the 
 test('a bad file shows a readable error and keeps the page usable', async () => {
   const window = await boot(notFound);
   const $ = (id) => window.document.getElementById(id);
+  $('mode-local').click();
   pick(window, 'f-txt', fakeFile('x.txt', Buffer.from('not tracking data\n')));
   pick(window, 'f-xml', fakeFile('x.xml', fixture('spec.xml')));
+  await until(() => !$('load-btn').disabled);                       // named by picker, so it counts as tracking data
   $('load-btn').click();
   await until(() => $('status').textContent.includes('could not be parsed'));
   assert.ok($('status').classList.contains('error'));
@@ -81,8 +86,10 @@ test('invalid VOD URLs are rejected before loading', async () => {
   const window = await boot(notFound);
   const $ = (id) => window.document.getElementById(id);
   $('vod-1').value = 'javascript:alert(1)';
+  $('mode-local').click();
   pick(window, 'f-txt', fakeFile('a.txt', fixture('raw.txt')));
   pick(window, 'f-xml', fakeFile('a.xml', fixture('spec.xml')));
+  await until(() => !$('load-btn').disabled);
   $('load-btn').click();
   await until(() => $('status').classList.contains('error'));
   assert.match($('status').textContent, /https/);
@@ -109,7 +116,7 @@ test('with the local server: SDAPI panel, per-feed status, one-click fetch and s
     return new Response(fixture(file), { status: 200 });
   });
   const $ = (id) => window.document.getElementById(id);
-  assert.equal($('mode-switch').hidden, false);
+  await until(() => !$('mode-sdapi').hidden);
   assert.equal($('sdapi-panel').hidden, true);
   $('mode-sdapi').click();
   assert.equal($('sdapi-panel').hidden, false);
@@ -127,6 +134,42 @@ test('with the local server: SDAPI panel, per-feed status, one-click fetch and s
   assert.equal($('frame').hidden, false);
   assert.equal($('delete-cache').hidden, false);
   assert.ok(seen.includes('api/file/abcdefghij1234/raw'));
+});
+
+test('data package: drop-zone choice shows the checklist and loads without another click', async () => {
+  const window = await boot(notFound);
+  const $ = (id) => window.document.getElementById(id);
+  assert.equal($('pkg-panel').hidden, false);
+  assert.equal($('local-panel').hidden, true);
+  pick(window, 'f-package', fakeFile('sample.zip', Buffer.from(samplePackage())));
+  await until(() => window.OPTA_PAYLOAD);
+  const rows = [...$('pkg-result').querySelectorAll('li')].map((li) => li.textContent);
+  assert.equal(rows.length, 5);
+  assert.ok(rows.every((r) => r.includes('\u2713')), rows.join(' | '));
+  assert.ok(window.OPTA_PAYLOAD.events.length > 0);
+  assert.equal($('frame').hidden, false);
+});
+
+test('data package: a package without tracking data explains what is missing and does not load', async () => {
+  const window = await boot(notFound);
+  const $ = (id) => window.document.getElementById(id);
+  pick(window, 'f-package', fakeFile('bad.zip', Buffer.from(samplePackage({ omit: ['.tar.gz'] }))));
+  await until(() => $('pkg-result').textContent.includes('No EPTS tracking found'));
+  assert.equal($('frame').hidden, true);
+  assert.equal(window.OPTA_PAYLOAD, undefined);
+});
+
+test('own files: a file for another match is flagged and the rest still loads', async () => {
+  const window = await boot(notFound);
+  const $ = (id) => window.document.getElementById(id);
+  $('mode-local').click();
+  pick(window, 'f-own', fakeFile('synthmatch0000000000000001_epts_raw_data.txt', fixture('raw.txt')));
+  await until(() => $('own-result').textContent.length > 0);
+  pick(window, 'f-xml', fakeFile('synthmatch0000000000000001_epts_format_specification.xml', fixture('spec.xml')));
+  pick(window, 'f-own', fakeFile('matchstats_othermatch0000000000002.json', fixture('matchstats.json')));
+  await until(() => !$('load-btn').disabled && $('own-result').textContent.includes('different match'));
+  $('load-btn').click();
+  await until(() => window.OPTA_PAYLOAD);
 });
 
 test('sidebar can be hidden and shown again', async () => {

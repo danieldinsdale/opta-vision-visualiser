@@ -17,7 +17,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = path.resolve(here, '..');
 const REPO_ROOT = path.resolve(WEB_ROOT, '..');
 const HOST = '127.0.0.1';
-const PORT = Number(process.env.OPTA_VISUALISER_PORT || 8765);
+const PORT_CHOSEN = Boolean(process.env.OPTA_VISUALISER_PORT);   // an explicit port is never silently changed
+let PORT = Number(process.env.OPTA_VISUALISER_PORT || 8765);
+const LAST_FALLBACK_PORT = PORT + 9;                              // without an explicit port, try the next few if one is busy
 const CACHE_DIR = path.resolve(process.env.OPTA_VISUALISER_CACHE_DIR || path.join(REPO_ROOT, 'data', 'sdapi_cache'));
 const MAX_BODY = 4096;
 
@@ -121,6 +123,21 @@ const server = http.createServer(async (req, res) => {
   }
 });
 server.requestTimeout = 0;           // large downloads from the local server can take a while
-server.listen(PORT, HOST, () => {
-  console.log(`Opta Vision Visualiser: http://${HOST}:${PORT}`);
-});
+function start() {
+  server.once('error', (e) => {
+    if (e.code !== 'EADDRINUSE') throw e;
+    if (!PORT_CHOSEN && PORT < LAST_FALLBACK_PORT) {
+      console.log(`Port ${PORT} is already in use, trying ${PORT + 1}...`);
+      PORT += 1;
+      return start();
+    }
+    console.error(`Port ${PORT} is already in use on this computer.`);
+    console.error(PORT_CHOSEN
+      ? 'Close whatever is using it, or pick another port, for example:  OPTA_VISUALISER_PORT=9000 npm start'
+      : `Tried ${LAST_FALLBACK_PORT - 9}-${LAST_FALLBACK_PORT}. A previous copy of this app may still be running in another terminal window (press Ctrl+C there), or pick a port:  OPTA_VISUALISER_PORT=9000 npm start`);
+    process.exit(1);
+  });
+  server.listen(PORT, HOST);
+}
+server.on('listening', () => console.log(`Opta Vision Visualiser: http://${HOST}:${PORT}`));
+start();
