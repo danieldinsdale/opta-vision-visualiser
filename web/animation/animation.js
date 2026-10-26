@@ -2301,9 +2301,19 @@ const skipBtn = document.getElementById('btn-skip-out');
 function updateSkipButton(fi) {
   skipBtn.hidden = !(_ballEntity && !ballTracked(fi) && nextBallFrame(fi) >= 0);
 }
+// Skipping lands a little before play resumes, so the viewer sees the restart (throw-in, kick-off...) happen.
+const SKIP_LEAD_SECONDS = 1;
+function skipTargetFrame(fi) {
+  const next = nextBallFrame(fi);
+  if (next < 0) return -1;
+  const tNext = D.meta.time[next], period = D.meta.period[next];
+  let target = next;
+  while (target - 1 > fi && D.meta.period[target - 1] === period && D.meta.time[target - 1] >= tNext - SKIP_LEAD_SECONDS) target--;
+  return target;                                          // never earlier than the frame after the current one
+}
 skipBtn.addEventListener('click', () => {
-  const next = nextBallFrame(currentFi);
-  if (next >= 0) render(next);
+  const target = skipTargetFrame(currentFi);
+  if (target >= 0) render(target);
 });
 
 function drawMatchFooter() {
