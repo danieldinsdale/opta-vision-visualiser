@@ -296,3 +296,16 @@ input[type=range] { accent-color: var(--ac) !important; }   /* !important: one s
 /* ── Typography: Roboto throughout (set on body); numbers and data use tabular figures so they do not jitter ── */
 #meta-display, .time-input, #gif-status, #video-overlay, .tt-val,
 #events-table, #phases-table, #runs-table { font-variant-numeric: tabular-nums; }
+
+/* Skip to the next in-play moment: floats over the pitch while the ball is out of play */
+#btn-skip-out {
+  position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%); z-index: 3;
+  display: flex; align-items: center; gap: 12px; padding: 7px 7px 7px 16px;
+  border: 0; border-radius: 99px; background: rgba(0, 0, 0, 0.78); color: #fff;
+  font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+#btn-skip-out em { font-style: normal; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; color: #ff9a9e; }
+#btn-skip-out b { padding: 5px 12px; border-radius: 99px; background: #FAA51A; color: #16161d; font-weight: 700; }
+#btn-skip-out:hover b { filter: brightness(1.1); }
+#btn-skip-out:focus-visible { outline: 2px solid #FAA51A; outline-offset: 2px; }
+#btn-skip-out[hidden] { display: none; }

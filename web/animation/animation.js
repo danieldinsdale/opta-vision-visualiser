@@ -2282,6 +2282,30 @@ function ballTracked(fi) {
 
 // Match title in the footer bar under the pitch: teams | competition | venue | date (whatever is known).
 // Drawn on the canvas so it is part of image, GIF and video exports. The font shrinks to fit narrow pictures.
+// First frame after `fi` where the ball has tracked coordinates in any source (-1 if none).
+function nextBallFrame(fi) {
+  if (!_ballEntity) return -1;
+  let best = -1;
+  for (const src of D.sources) {
+    const ball = _ballEntity.s[src.id];
+    if (!ball || !ball.fi.length) continue;
+    let lo = 0, hi = ball.fi.length;                      // first index with fi > current
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (ball.fi[mid] <= fi) lo = mid + 1; else hi = mid; }
+    if (lo < ball.fi.length && (best < 0 || ball.fi[lo] < best)) best = ball.fi[lo];
+  }
+  return best;
+}
+
+// The "Skip to next in play" pill: only shown while the ball is out of play and there is a later in-play frame.
+const skipBtn = document.getElementById('btn-skip-out');
+function updateSkipButton(fi) {
+  skipBtn.hidden = !(_ballEntity && !ballTracked(fi) && nextBallFrame(fi) >= 0);
+}
+skipBtn.addEventListener('click', () => {
+  const next = nextBallFrame(currentFi);
+  if (next >= 0) render(next);
+});
+
 function drawMatchFooter() {
   const L = D.lineup || {};
   const home = L['teamname_1'] || '', away = L['teamname_2'] || '';
@@ -2866,6 +2890,7 @@ function render(fi) {
   updateMeta(fi);
   slider.value = fi;
   currentFi    = fi;
+  updateSkipButton(fi);
 
   // 3D RAF loop handles visual update; skip 2D canvas drawing
   if (is3D) return;
@@ -3738,6 +3763,24 @@ function _closeAllBottomPanels() {
   const btnSync   = document.getElementById('btn-gif-sync');
 
   function setStatus(msg) { if (statusEl) statusEl.textContent = msg; }
+
+  // Hands a finished file to the browser. Some browsers (Firefox in particular) can silently ignore a download
+  // that is started from code long after the click that began the export, so a "Save" link is always shown
+  // as well; clicking it is a user action and always works. The file URL is kept until the next export.
+  let lastUrl = null;
+  function offerDownload(blob, filename, message) {
+    if (lastUrl) URL.revokeObjectURL(lastUrl);
+    const url = lastUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);          // automatic attempt
+    if (!statusEl) return;
+    const link = document.createElement('a');
+    link.href = url; link.download = filename; link.textContent = 'Save ' + filename;
+    link.style.cssText = 'color:#FAA51A;text-decoration:underline;margin-left:8px';
+    statusEl.textContent = message + ' If nothing was saved, click: ';
+    statusEl.appendChild(link);
+  }
   function setProgress(p) {
     if (!barWrap || !bar) return;
     barWrap.style.display = p > 0 && p < 1 ? 'block' : 'none';
@@ -3827,13 +3870,8 @@ function _closeAllBottomPanels() {
       recorder.onstop = () => {
         const ext  = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
         const blob = new Blob(chunks, { type: mimeType });
-        const url  = URL.createObjectURL(blob);
-        const a    = document.createElement('a');
-        a.href     = url;
-        a.download = 'animation_P' + period + '_' + startMin + 'm' + startSec + 's_' + speedMult + 'x.' + ext;
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
-        setStatus('Done! Video downloaded (' + mimeType.split(';')[0] + ', ' + speedMult + '×, ' + pr.w + '×' + pr.h + ').');
+        offerDownload(blob, 'animation_P' + period + '_' + startMin + 'm' + startSec + 's_' + speedMult + 'x.' + ext,
+          'Done! Video ready (' + mimeType.split(';')[0] + ', ' + speedMult + '×, ' + pr.w + '×' + pr.h + ').');
         setProgress(0);
         btnVid.disabled = false; btnGen.disabled = false;
         render(currentFi);
@@ -3943,15 +3981,8 @@ function _closeAllBottomPanels() {
       });
 
       gif.on('finished', blob => {
-        const url = URL.createObjectURL(blob);
-        const a   = document.createElement('a');
-        a.href     = url;
-        a.download = 'animation_P' + period + '_' + startMin + 'm' + startSec + 's.gif';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
-        setStatus('Done! ' + total + ' frames, ' + W + '×' + H + 'px.');
+        offerDownload(blob, 'animation_P' + period + '_' + startMin + 'm' + startSec + 's.gif',
+          'Done! ' + total + ' frames, ' + W + '×' + H + 'px.');
         setProgress(0);
         btnGen.disabled = false;
         render(currentFi);  // restore current frame
