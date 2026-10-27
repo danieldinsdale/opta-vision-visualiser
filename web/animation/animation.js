@@ -851,19 +851,22 @@ function drawEntities(fi, pass) {
         const label    = src.prefix + entity.j + suffix;
         const fontSize = Math.max(7, baseR * sc * 1.1);
         const labelY   = fill ? cy : cy - r - fontSize * 0.6;
+        // Digits sit on the baseline and are about 0.72 em tall. The 'middle' baseline is the em box's middle, which
+        // puts the digits' visual centre about 0.1 em too high, so centre them from the alphabetic baseline instead.
+        const textY    = labelY + fontSize * 0.36;
         // save/restore isolates all text state so nothing bleeds into subsequent draws
         ctx.save();
         ctx.setLineDash([]);
         ctx.font         = '700 ' + fontSize + 'px ' + FONT_SANS;
         ctx.textAlign    = 'center';
-        ctx.textBaseline = 'middle';
+        ctx.textBaseline = 'alphabetic';
         ctx.lineJoin     = 'round';
         if (fill && light1 !== light2) {
           // Two-colour kit with one light and one dark colour: white number with a dark outline, readable on both halves
           ctx.fillStyle   = '#ffffff';
           ctx.strokeStyle = 'rgba(0,0,0,0.85)';
           ctx.lineWidth   = Math.max(2, fontSize * 0.28);
-          ctx.strokeText(label, cx, labelY);
+          ctx.strokeText(label, cx, textY);
         } else if (fill) {
           // Number inside a filled player: same tone as the player's outline (black on light kits, white on dark), no text outline
           ctx.fillStyle = light1 ? '#000000' : '#ffffff';
@@ -871,10 +874,10 @@ function drawEntities(fi, pass) {
           // Outline-only player: the number sits beside the ring on the grass, so it keeps its dark text outline
           ctx.strokeStyle = 'rgba(0,0,0,0.85)';
           ctx.lineWidth   = Math.max(2, fontSize * 0.28);
-          ctx.strokeText(label, cx, labelY);
+          ctx.strokeText(label, cx, textY);
           ctx.fillStyle   = teamColor;
         }
-        ctx.fillText(label, cx, labelY);
+        ctx.fillText(label, cx, textY);
         ctx.restore();
       }
     }
@@ -2255,21 +2258,69 @@ function boardLogoAt(w, h) {                       // w, h in CSS pixels; built 
   return out;
 }
 
-// Goal banner: drops from under the scoreboard when a goal is scored, stays about 6 seconds, then lifts away.
-// Its state depends only on the frame number, so it also shows correctly when scrubbing or replaying.
-const GOAL_BANNER_IN = 12, GOAL_BANNER_HOLD = 150, GOAL_BANNER_OUT = 12;     // frames at 25 Hz: 0.5 s, 6 s, 0.5 s
-function goalBannerAt(fi) {
-  let goal = null;
-  for (const g of scoreboardGoals) { if (g.fi > fi) break; goal = g; }
-  if (!goal) return null;
-  const age = fi - goal.fi;
-  if (age >= GOAL_BANNER_IN + GOAL_BANNER_HOLD + GOAL_BANNER_OUT) return null;
-  const ease = (x) => 1 - Math.pow(1 - x, 3);
-  const t = age < GOAL_BANNER_IN ? ease(age / GOAL_BANNER_IN)
-          : age < GOAL_BANNER_IN + GOAL_BANNER_HOLD ? 1
-          : 1 - ease((age - GOAL_BANNER_IN - GOAL_BANNER_HOLD) / GOAL_BANNER_OUT);
-  return { goal, t };
+// Scoreboard notices: goals, cards and substitutions drop from under the scoreboard in the acting team's
+// colour, stay for a few seconds, then lift away. State depends only on the frame number, so it also shows
+// correctly when scrubbing or replaying. Newest notice sits lowest; at most NOTICE_MAX are shown at once.
+const NOTICE_IN = 12, NOTICE_OUT = 12;                      // frames at 25 Hz: 0.5 s each
+const NOTICE_HOLD = { goal: 150, card: 125, sub: 125, added: 150 };   // 6 s for goals and added time, 5 s for cards and substitutions
+const NOTICE_MAX = 3;
+const SUB_PAIR_FRAMES = 25 * 30;                            // sub off / sub on events this close (30 s) are one substitution
+const matchMinuteAt = (fi) => Math.floor(D.meta.time[fi] / 60) + (D.meta.period[fi] - 1) * 45;
+const eventPlayerName = (e) => e.jn !== null && e.jn !== undefined ? (D.lineup[e.g + ':' + e.jn] || '#' + e.jn) : '';
+
+// Cards: qualifier 33 = red, 32 = second yellow, otherwise yellow.
+const scoreboardCards = D.events.filter(e => e.t === 'card' && (e.ti === 0 || e.ti === 1)).map(e => {
+  const ids = (e.quals || []).map(q => q.id);
+  return { fi: e.fi, kind: 'card', team: e.ti, card: ids.includes(33) ? 'red' : ids.includes(32) ? 'second' : 'yellow',
+           name: eventPlayerName(e), minute: matchMinuteAt(e.fi) };
+});
+const scoreboardDismissals = [0, 1].map(ti => scoreboardCards.filter(c => c.team === ti && c.card !== 'yellow').map(c => c.fi));
+
+// Substitutions: each sub_off is paired, in feed order, with the nearest unused sub_on of the same team.
+const scoreboardSubs = (() => {
+  const offs = D.events.filter(e => e.t === 'sub_off' && (e.ti === 0 || e.ti === 1));
+  const ons = D.events.filter(e => e.t === 'sub_on' && (e.ti === 0 || e.ti === 1));
+  const used = new Set(), out = [];
+  for (const off of offs) {
+    let best = -1;
+    ons.forEach((on, i) => {
+      if (used.has(i) || on.ti !== off.ti) return;
+      const d = Math.abs(on.fi - off.fi);
+      if (d <= SUB_PAIR_FRAMES && (best < 0 || d < Math.abs(ons[best].fi - off.fi))) best = i;
+    });
+    if (best >= 0) used.add(best);
+    const on = best >= 0 ? ons[best] : null, fi = on ? Math.min(on.fi, off.fi) : off.fi;
+    out.push({ fi, kind: 'sub', team: off.ti, on: on ? eventPlayerName(on) : '', off: eventPlayerName(off), minute: matchMinuteAt(fi) });
+  }
+  ons.forEach((on, i) => { if (!used.has(i)) out.push({ fi: on.fi, kind: 'sub', team: on.ti, on: eventPlayerName(on), off: '', minute: matchMinuteAt(on.fi) }); });
+  return out;
+})();
+
+// Added time: the injury-time announcement carries the minutes in qualifier 277. No team, so brand colours.
+const scoreboardAddedTime = D.events.filter(e => e.t === 'injury_time_announcement').map(e => {
+  const q = (e.quals || []).find(x => x.id === 277), minutes = parseInt(q && q.value, 10);
+  return Number.isFinite(minutes) && minutes > 0 ? { fi: e.fi, kind: 'added', team: null, minutes } : null;
+}).filter(Boolean);
+
+const scoreboardNotices = [
+  ...scoreboardGoals.map(g => ({ fi: g.fi, kind: 'goal', team: g.scorer, own: g.own, name: g.name, minute: g.minute })),
+  ...scoreboardCards, ...scoreboardSubs, ...scoreboardAddedTime,
+].sort((x, y) => x.fi - y.fi);
+
+function noticesAt(fi) {
+  const ease = (x) => 1 - Math.pow(1 - x, 3), live = [];
+  for (const n of scoreboardNotices) {
+    if (n.fi > fi) break;
+    const hold = NOTICE_HOLD[n.kind], age = fi - n.fi;
+    if (age >= NOTICE_IN + hold + NOTICE_OUT) continue;
+    const t = age < NOTICE_IN ? ease(age / NOTICE_IN)
+            : age < NOTICE_IN + hold ? 1
+            : 1 - ease((age - NOTICE_IN - hold) / NOTICE_OUT);
+    live.push({ n, t });
+  }
+  return live.slice(-NOTICE_MAX);
 }
+const dismissalsAt = (team, fi) => { let c = 0; for (const f of scoreboardDismissals[team]) { if (f > fi) break; c++; } return c; };
 
 // True when any source has a tracked ball coordinate at this frame (the data has no ball-status field,
 // so a frame without ball coordinates is treated as the ball being out of play).
@@ -2364,7 +2415,10 @@ function drawScoreboard(fi) {
   rr(xTab, y0, total, h, h * 0.18, PANEL);                        // one white plate behind everything
   ctx.restore();
   ctx.save();
-  ctx.beginPath(); ctx.rect(xTab, y0, total, h); ctx.clip();
+  { const r = h * 0.18;                                           // clip to the plate's rounded outline so the logo tab and score panels share its corners
+    ctx.beginPath();
+    ctx.moveTo(xTab + r, y0); ctx.arcTo(xTab + total, y0, xTab + total, y0 + h, r); ctx.arcTo(xTab + total, y0 + h, xTab, y0 + h, r);
+    ctx.arcTo(xTab, y0 + h, xTab, y0, r); ctx.arcTo(xTab, y0, xTab + total, y0, r); ctx.closePath(); ctx.clip(); }
 
   // brand logo tab (far left)
   ctx.fillStyle = '#ffffff'; ctx.fillRect(xTab, y0, tabW, h);
@@ -2415,27 +2469,107 @@ function drawScoreboard(fi) {
   ctx.beginPath(); ctx.arc(xs + widths[2] / 2, cy, Math.max(2, h * 0.07), 0, 2 * Math.PI); ctx.fill();
   ctx.restore();
 
-  // goal banner under the board, in the scoring team's colour (second colour as a stripe along the bottom)
-  const gb = goalBannerAt(fi);
-  if (gb && gb.t > 0.06) {
-    const g = gb.goal, team = g.scorer + 1;
-    const c1 = D.colors[String(team)] || '#888888', c2 = teamColour2(team);
-    const bw = total * 0.78, bh = h * 0.75, bx = xTab + (total - bw) / 2;
-    const by = y0 + h + 3 - (1 - gb.t) * (bh + 3);
+  // red-card markers on the top edge of the team panel: one small red card per sending off (red or second yellow)
+  [[0, x0 + widths[0], widths[1]], [1, xAway, widths[3]]].forEach(([ti, px, pw]) => {
+    const n = dismissalsAt(ti, fi);
+    if (!n) return;
+    const mw = h * 0.17, mh = h * 0.24, gap = h * 0.04, mtot = n * mw + (n - 1) * gap;
+    const my = Math.max(T.top + 1, y0 - h * 0.12);
     ctx.save();
-    ctx.beginPath(); ctx.rect(bx - 6, y0 + h, bw + 12, bh + 14); ctx.clip();       // emerges from under the board
+    ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 3; ctx.shadowOffsetY = 1;
+    for (let i = 0; i < n; i++) {
+      const mx = px + pw / 2 - mtot / 2 + i * (mw + gap);
+      rr(mx - 1.2, my - 1.2, mw + 2.4, mh + 2.4, mw * 0.28, PANEL);
+      rr(mx, my, mw, mh, mw * 0.22, '#e53935');
+    }
+    ctx.restore();
+  });
+
+  drawNotices(fi, xTab, total, y0, h, rr);
+}
+
+// Notice banners under the board (goal, card, substitution), stacked with the newest lowest.
+function drawNotices(fi, xTab, total, y0, h, rr) {
+  const live = noticesAt(fi);
+  if (!live.length) return;
+  const bw = total * 0.78, bh = h * 0.75, bx = xTab + (total - bw) / 2, gap = 4, below = y0 + h;
+  const card = (cx, cy, cw, ch, colour, outline) => {
+    if (outline) rr(cx - 1.5, cy - 1.5, cw + 3, ch + 3, cw * 0.3, '#ffffff');
+    rr(cx, cy, cw, ch, cw * 0.22, colour);
+  };
+  live.forEach(({ n, t }, i) => {
+    if (t <= 0.06) return;
+    const team = n.team === null ? 0 : n.team + 1;
+    const c1 = team ? (D.colors[String(team)] || '#888888') : '#3F1568', c2 = team ? teamColour2(team) : '#FAA51A';   // team-less notices: brand navy + orange
+    const slotY = below + 3 + i * (bh + gap);
+    const by = i === 0 ? slotY - (1 - t) * (bh + 3) : slotY - (1 - t) * bh * 0.5;
+    ctx.save();
+    if (i === 0) { ctx.beginPath(); ctx.rect(bx - 6, below, bw + 12, bh + 14); ctx.clip(); }   // emerges from under the board
+    else ctx.globalAlpha = t;
     ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 2;
     rr(bx, by, bw, bh, bh * 0.22, c1);
     ctx.shadowColor = 'transparent';
     if (c2) { ctx.save(); ctx.beginPath(); ctx.rect(bx, by + bh - bh * 0.12, bw, bh * 0.12); ctx.clip(); rr(bx, by, bw, bh, bh * 0.22, c2); ctx.restore(); }
-    const ink = isLightColour(c1) ? '#16161d' : '#ffffff';
-    ctx.font = '700 ' + (bh * 0.5) + 'px ' + FONT_SANS;
-    ctx.fillStyle = ink; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-    ctx.fillText(g.own ? 'OWN GOAL' : 'GOAL', bx + bh * 0.5, by + bh / 2);
-    ctx.textAlign = 'center';
-    ctx.fillText((g.name ? g.name + '  ' : '') + g.minute + "'", bx + bw * 0.64, by + bh / 2);
+    const light = isLightColour(c1), ink = light ? '#16161d' : '#ffffff', cy = by + bh / 2;
+    ctx.fillStyle = ink; ctx.textBaseline = 'middle';
+
+    if (n.kind === 'goal') {
+      ctx.font = '700 ' + (bh * 0.5) + 'px ' + FONT_SANS; ctx.textAlign = 'left';
+      ctx.fillText(n.own ? 'OWN GOAL' : 'GOAL', bx + bh * 0.5, cy);
+      ctx.textAlign = 'center';
+      ctx.fillText((n.name ? n.name + '  ' : '') + n.minute + "'", bx + bw * 0.64, cy);
+    } else if (n.kind === 'added') {
+      ctx.font = '700 ' + (bh * 0.5) + 'px ' + FONT_SANS; ctx.textAlign = 'left';
+      ctx.fillText('ADDED TIME', bx + bh * 0.5, cy);
+      ctx.textAlign = 'right';
+      ctx.fillText('' + n.minutes + (n.minutes === 1 ? ' MIN' : ' MINS'), bx + bw - bh * 0.5, cy);
+    } else if (n.kind === 'card') {
+      const label = n.card === 'red' ? 'RED CARD' : n.card === 'second' ? 'SECOND YELLOW' : 'YELLOW CARD';
+      const right = (n.name ? n.name + '  ' : '') + n.minute + "'";
+      const cw = bh * 0.3, ch = bh * 0.46, ix = bx + bh * 0.4, iw = n.card === 'second' ? cw * 1.7 : cw;
+      if (n.card === 'second') { card(ix, cy - ch / 2 + 1, cw, ch, '#ffd23a', false); card(ix + cw * 0.7, cy - ch / 2 - 1, cw, ch, '#e53935', false); }
+      else card(ix, cy - ch / 2, cw, ch, n.card === 'red' ? '#e53935' : '#ffd23a', n.card === 'red');
+      ctx.fillStyle = ink;                                          // card() changed the fill
+      const lx = ix + iw + bh * 0.3, avail = bx + bw - bh * 0.5 - lx;
+      let size = bh * 0.5; ctx.font = '700 ' + size + 'px ' + FONT_SANS;
+      const need = ctx.measureText(label).width + ctx.measureText(right).width + bh * 0.4;
+      if (need > avail) { size *= avail / need; ctx.font = '700 ' + size + 'px ' + FONT_SANS; }
+      ctx.textAlign = 'left'; ctx.fillText(label, lx, cy);
+      ctx.textAlign = 'right'; ctx.fillText(right, bx + bw - bh * 0.5, cy);
+    } else {                                                        // substitution: SUB badge, player on, player off, minute
+      const GREEN = '#0a9b3c', RED = '#d11f1f';                       // drawn on white chips so they read on any team colour
+      const right = n.minute + "'", pad = bh * 0.4;
+      let size = bh * 0.44;
+      const measure = () => {
+        ctx.font = '700 ' + size + 'px ' + FONT_SANS;
+        const badge = ctx.measureText('SUB').width + size * 0.9, tri = size * 1.15;
+        const on = n.on ? tri + ctx.measureText(n.on).width : 0, off = n.off ? tri + ctx.measureText(n.off).width : 0;
+        return { badge, tri, on, off, total: badge + (n.on ? size * 0.7 + on : 0) + (n.off ? size * 0.7 + off : 0) + size * 0.7 + ctx.measureText(right).width };
+      };
+      let m = measure();
+      const avail = bw - pad * 2;
+      if (m.total > avail) { size *= avail / m.total; m = measure(); }
+      let x = bx + pad;
+      rr(x, cy - size * 0.62, m.badge, size * 1.24, size * 0.3, light ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.28)');
+      ctx.fillStyle = ink; ctx.textAlign = 'center'; ctx.font = '700 ' + (size * 0.8) + 'px ' + FONT_SANS;
+      ctx.fillText('SUB', x + m.badge / 2, cy + 0.5);
+      x += m.badge + size * 0.7;
+      ctx.font = '700 ' + size + 'px ' + FONT_SANS;
+      const tri = (tx, up) => {
+        const chip = size * 0.95, w = size * 0.5, hh = size * 0.42, cx = tx + chip / 2;
+        rr(tx, cy - chip / 2, chip, chip, chip * 0.28, 'rgba(255,255,255,0.92)');
+        ctx.fillStyle = up ? GREEN : RED; ctx.beginPath();
+        if (up) { ctx.moveTo(cx - w / 2, cy + hh / 2); ctx.lineTo(cx + w / 2, cy + hh / 2); ctx.lineTo(cx, cy - hh / 2); }
+        else { ctx.moveTo(cx - w / 2, cy - hh / 2); ctx.lineTo(cx + w / 2, cy - hh / 2); ctx.lineTo(cx, cy + hh / 2); }
+        ctx.closePath(); ctx.fill();
+      };
+      ctx.textAlign = 'left';
+      if (n.on) { tri(x, true); ctx.fillStyle = ink; ctx.fillText(n.on, x + m.tri, cy); x += m.on + size * 0.7; }
+      if (n.off) { tri(x, false); ctx.fillStyle = ink; ctx.fillText(n.off, x + m.tri, cy); }
+      ctx.fillStyle = ink; ctx.textAlign = 'right'; ctx.fillText(right, bx + bw - pad, cy);
+    }
     ctx.restore();
-  }
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

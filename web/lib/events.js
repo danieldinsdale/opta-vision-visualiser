@@ -44,7 +44,9 @@ export function parseRemoteEvents(feed, names) {
     for (const q of e.qualifier || []) {
       let qid;
       try { qid = toInt(q.qualifierId); } catch { continue; }
-      quals.push({ id: qid, name: names.qualifiers[qid] ?? String(qid) });
+      const qual = { id: qid, name: names.qualifiers[qid] ?? String(qid) };
+      if (qid === 277) qual.value = String(q.value ?? '');   // MINUTES: the added minutes on an injury-time announcement
+      quals.push(qual);
     }
     let periodSeconds;
     try {
