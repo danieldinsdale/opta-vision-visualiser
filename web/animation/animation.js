@@ -300,9 +300,9 @@ let T = {};
 // ─────────────────────────────────────────────────────────────────────────────
 //  Coordinate helpers
 // ─────────────────────────────────────────────────────────────────────────────
-const MARGIN = 2;             // metres around the pitch inside the picture (the goal nets are 2 m deep)
-const GRASS_RUNOFF = 1.75;    // grass beyond the touchlines/goal lines (metres, must stay below MARGIN so a thin dark rim remains)
-const BAR_COLOUR = '#1b1b1e'; // header (scoreboard) and footer (match title) bars above and below the pitch
+const MARGIN = 2.3;           // metres around the pitch inside the picture (the goal nets are 2 m deep, so the grass must reach past them)
+const GRASS_RUNOFF = 2.2;     // grass beyond the touchlines/goal lines (metres): beyond the net depth so the whole net sits on grass; stays below MARGIN so a thin dark rim remains
+const BAR_COLOUR = '#14061f'; // header (scoreboard) and footer (match title) bars: the page colour, so the scoreboard floats on the page
 const GOAL_W = 7.32, GOAL_NET_D = 2.0, NET_CELL = 0.3;   // goal mouth width, net depth behind the line (metres); NET_CELL is the 3D net's mesh size
 
 // The picture is a header bar (scoreboard), the pitch with its margin, and a footer bar (match title).
@@ -311,11 +311,11 @@ function setupTransform(W, H) {
   const L = D.pitch.L, Wp = D.pitch.W;
   const dataW = L + 2 * MARGIN;
   const dataH = Wp + 2 * MARGIN;
-  const head = Math.round(Math.min(68, Math.max(54, H * 0.1)));
-  const foot = 28;
+  const head = Math.round(Math.min(68, Math.max(66, H * 0.1)));
+  const foot = _isExporting() ? 28 : 0;   // the match-title footer exists only in exports; on screen the picture ends at the pitch
   const sc = Math.min(W / dataW, (H - head - foot) / dataH);
   const ox = (W - dataW * sc) / 2;
-  const top = (H - (head + dataH * sc + foot)) / 2;           // top edge of the header bar
+  const top = Math.min((H - (head + dataH * sc + foot)) / 2, 8);   // top edge of the header bar: centred, but never more than 8 px from the top (no empty gap above the scoreboard)
   const oy = top + head;                                       // top edge of the pitch area (margin included)
   T = { sc, ox, oy, L, Wp, head, foot, top, barW: dataW * sc };
 }
@@ -369,17 +369,17 @@ const tileCss = (k) => '#' + tileHex(k).toString(16).padStart(6, '0');
 function drawPitch(W, H) {
   const L = T.L, Wp = T.Wp, sc = T.sc;
 
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = BAR_COLOUR;                                   // header and footer bars, as wide as the pitch area
-  ctx.fillRect(Math.floor(T.ox), Math.floor(T.top), Math.ceil(T.barW), T.head);
-  ctx.fillRect(Math.floor(T.ox), Math.floor(T.oy + (T.Wp + 2 * MARGIN) * T.sc), Math.ceil(T.barW), T.foot + 1);
+  if (_isExporting()) {                                         // header and footer bars (saved clips only; on screen the page background shows through)
+    ctx.fillStyle = BAR_COLOUR;
+    ctx.fillRect(Math.floor(T.ox), Math.floor(T.top), Math.ceil(T.barW), T.head);
+    ctx.fillRect(Math.floor(T.ox), Math.floor(T.oy + (T.Wp + 2 * MARGIN) * T.sc), Math.ceil(T.barW), T.foot ? T.foot + 1 : 0);
+  }
 
   // Vertical grass stripes: subtle two-tone, pixel-snapped so no seams show between stripes
   const cw = L / PITCH_COLS, rh = Wp / PITCH_ROWS;
   const [px1, py1] = tc(-L / 2, Wp / 2);
   const [px2, py2] = tc(L / 2, -Wp / 2);
-  const RUN = Math.min(GRASS_RUNOFF, MARGIN - 0.25);
+  const RUN = Math.min(GRASS_RUNOFF, MARGIN - 0.1);
   const [gx1, gy1] = tc(-L / 2 - RUN, Wp / 2 + RUN);         // grass area: the pitch plus a run-off all round
   const [gx2, gy2] = tc(L / 2 + RUN, -Wp / 2 - RUN);
   ctx.fillStyle = tileCss(0);
@@ -950,6 +950,7 @@ function drawPossessionHighlight(fi, pass) {
 
 const phasesPanelEl  = document.getElementById('phases-panel');
 const phaseTitleEl   = document.getElementById('phase-title');
+const phaseTeamVal   = document.getElementById('phase-team-val');
 const phaseInitVal   = document.getElementById('phase-init-val');
 const phaseFirstVal  = document.getElementById('phase-first-val');
 const phasePassesVal = document.getElementById('phase-passes-val');
@@ -970,7 +971,8 @@ const dcAdcVal        = document.getElementById('dc-adc-val');
 
 const _hasPhases    = D.phases    && Object.keys(D.phases).length    > 0;
 const _hasRuns      = D.runs      && Object.keys(D.runs).length      > 0;
-let   showPressures      = false;
+let   showPressures      = false;   // Tabular info: pressures table
+let   showPressureHighlights = false; // Visual only: pressure highlights on the pitch
 const _hasPressures      = D.pressures && D.pressures.length > 0;
 let   showDefCompactness  = false;
 let   showPhaseOverlay    = false;
@@ -978,8 +980,54 @@ let   showOverloadOverlay = false;
 let   showRunInfo         = false;
 let   showPressureInfo    = false;
 
+// ── Table dock: the Events / Phases / Runs tables sit beside the pitch (inside the right column) or below it.
+// The choice is remembered. With video the tables always go below, because the video sits beside the animation.
+const bottomPanelsEl = document.getElementById('bottom-panels');
+const _hasTables  = (D.events && D.events.length > 0) || _hasPhases || _hasRuns;
+const dockBarEl   = document.getElementById('dock-bar');
+let   dockSide    = false;
+let   dockPref    = 'side';
+try { if (localStorage.getItem('opta-dock') === 'below') dockPref = 'below'; } catch (e) { /* storage unavailable */ }
+const DOCK_W_MIN = 360, DOCK_W_MAX = 900;
+
+function _applyDock() {
+  dockSide = _hasTables && !hasVod && dockPref === 'side';
+  const home = document.getElementById('gif-panel');
+  if (dockSide) rightColEl.appendChild(bottomPanelsEl);
+  else home.parentNode.insertBefore(bottomPanelsEl, home);
+  document.body.classList.toggle('dock-side', dockSide);
+  dockBarEl.hidden = !_hasTables;
+  document.getElementById('dock-resize').hidden = !dockSide;
+  document.getElementById('dock-side').classList.toggle('on', dockSide);
+  document.getElementById('dock-below').classList.toggle('on', !dockSide);
+  document.getElementById('dock-side').disabled = hasVod;
+  document.getElementById('dock-note').textContent = hasVod ? 'Below while video is on' : '';
+  _setRightCol();
+  window.dispatchEvent(new Event('resize'));          // the pitch canvas re-fits its column
+}
+for (const [id, pref] of [['dock-side', 'side'], ['dock-below', 'below']]) {
+  document.getElementById(id).addEventListener('click', () => {
+    dockPref = pref;
+    try { localStorage.setItem('opta-dock', pref); } catch (e) { /* storage unavailable */ }
+    _applyDock();
+  });
+}
+(function () {                                           // drag the left edge of the dock to widen it
+  const grip = document.getElementById('dock-resize');
+  grip.addEventListener('pointerdown', ev => {
+    ev.preventDefault(); grip.setPointerCapture(ev.pointerId);
+    const move = e => {
+      const w = Math.min(DOCK_W_MAX, Math.max(DOCK_W_MIN, window.innerWidth - e.clientX));
+      rightColEl.style.flexBasis = w + 'px';
+      window.dispatchEvent(new Event('resize'));
+    };
+    const up = () => { grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); };
+    grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up);
+  });
+})();
+
 function _setRightCol() {
-  const needRight = hasVod || (showPhases && _hasPhases) || (showRuns && _hasRuns) ||
+  const needRight = hasVod || dockSide || (showPhases && _hasPhases) || (showRuns && _hasRuns) ||
                     (showPressures && _hasPressures) || (showDefCompactness && _hasPhases);
   rightColEl.classList.toggle('active', needRight);
   phasesPanelEl.classList.toggle('active',   showPhases        && _hasPhases);
@@ -990,7 +1038,7 @@ function _setRightCol() {
 
 function _hidePhasePanel() {
   phasesPanelEl.classList.remove('active');
-  const others = hasVod || (showRuns && _hasRuns) || (showPressures && _hasPressures) || (showDefCompactness && _hasPhases);
+  const others = hasVod || dockSide || (showRuns && _hasRuns) || (showPressures && _hasPressures) || (showDefCompactness && _hasPhases);
   if (!others) rightColEl.classList.remove('active');
 }
 
@@ -1010,13 +1058,41 @@ function formatRunType(s) {
   return s.replace(/([A-Z])/g, ' $1').trim().replace(/^./, c => c.toUpperCase());
 }
 
+// ── Info window helpers: team-colour jersey discs, Yes/No badges ──
+function _esc(s) { return String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch])); }
+function _teamCol(g) { return (D.colors && D.colors[g]) || '#888888'; }
+function _disc(g, j) {
+  const col = _teamCol(g), ink = isLightColour(col) ? '#111111' : '#ffffff';
+  return '<span class="dsc" style="background:' + col + ';color:' + ink + '">' + (j !== null && j !== undefined && j !== '' ? _esc(j) : '') + '</span>';
+}
+function _teamName(g) { return g === 1 ? (D.lineup && D.lineup['teamname_1'] || 'Home') : g === 2 ? (D.lineup && D.lineup['teamname_2'] || 'Away') : ''; }
+function _jerseyByName(g, name) {
+  if (!D.lineup || !name) return null;
+  for (let j = 1; j <= 99; j++) if (D.lineup[g + ':' + j] === name) return j;
+  return null;
+}
+function _playerCell(g, j, name) {
+  if (!name) return '';
+  return '<span class="pl">' + _disc(g, j) + _esc(name) + '</span>';
+}
+function _yesNo(v) { return v === 'True' ? '<span class="yes">Yes</span>' : v === 'False' ? '<span class="no">No</span>' : ''; }
+// Edge colour for a team's rows: the team colour, or a light grey when that colour is too dark to read on the dark panel.
+function _edgeCol(g) {
+  const h = _teamCol(g).replace('#', '');
+  const v = h.length === 3 ? h.split('').map(c => parseInt(c + c, 16)) : [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
+  return (0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2]) < 70 ? '#8a93a6' : _teamCol(g);
+}
+function _teamDot(g) { return ''; }   // team column is plain text (the jersey disc carries the team colour)
+function _edge(g) { return 'box-shadow:inset 3px 0 0 ' + _edgeCol(g); }
+
 function _clearPhasePanel() {
   phaseTitleEl.textContent   = '—';
-  phaseInitVal.textContent   = '—';
-  phaseFirstVal.textContent  = '—';
-  phasePassesVal.textContent = '—';
-  phaseGoalVal.textContent   = '—';
-  phaseShotsVal.textContent  = '—';
+  phaseTeamVal.innerHTML     = '';
+  phaseInitVal.innerHTML     = '';
+  phaseFirstVal.innerHTML    = '';
+  phasePassesVal.textContent = '';
+  phaseGoalVal.innerHTML     = '';
+  phaseShotsVal.innerHTML    = '';
   phaseQualList.innerHTML    = '';
 }
 
@@ -1040,12 +1116,14 @@ function updatePhaseOverlay(fi) {
 
   const ph = ps[idx];
 
+  const pg = ph.possG;
   phaseTitleEl.textContent   = ph.l;
-  phaseInitVal.textContent   = ph.init   || '—';
-  phaseFirstVal.textContent  = ph.first  || '—';
-  phasePassesVal.textContent = ph.passes || '—';
-  phaseGoalVal.textContent   = _boolLabel(ph.goal);
-  phaseShotsVal.textContent  = _boolLabel(ph.shots);
+  phaseTeamVal.innerHTML     = pg ? '<span class="pl">' + _disc(pg, '').replace('class="dsc"', 'class="dsc dot"') + _esc(_teamName(pg)) + '</span>' : '';
+  phaseInitVal.innerHTML     = _playerCell(pg, ph.initJ, ph.init);
+  phaseFirstVal.innerHTML    = _playerCell(pg, _jerseyByName(pg, ph.first), ph.first);
+  phasePassesVal.textContent = ph.passes || '';
+  phaseGoalVal.innerHTML     = _yesNo(ph.goal);
+  phaseShotsVal.innerHTML    = _yesNo(ph.shots);
 
   phaseQualList.innerHTML = '';
 
@@ -1096,23 +1174,16 @@ function updateRunsPanel(fi) {
   const active = rs.filter(r => r.s <= t && r.e >= t);
 
   runsListEl.innerHTML = '';
+  const cnt = document.getElementById('runs-count');
+  cnt.textContent = active.length ? active.length + ' active' : 'none now';
+  cnt.parentNode.classList.toggle('idle', !active.length);
   if (active.length === 0) {
-    // Keep panel open with empty state
-    const empty = document.createElement('div');
-    empty.id = 'runs-empty';
-    empty.textContent = '—';
-    runsListEl.appendChild(empty);
+    runsListEl.innerHTML = '<table class="mt"><thead><tr><th>Player</th><th>Label</th><th>Type</th></tr></thead><tbody><tr class="empt-row"><td colspan="3">No active runs at this moment</td></tr></tbody></table>';
     return;
   }
-  for (const r of active) {
-    const item = document.createElement('div');
-    item.className = 'run-item';
-    item.innerHTML =
-      '<div class="run-row"><span class="run-lbl">Player:</span><span class="run-val">' + (r.player || '—')          + '</span></div>' +
-      '<div class="run-row"><span class="run-lbl">Label:</span><span class="run-val">'  + formatRunLabel(r.label)    + '</span></div>' +
-      '<div class="run-row"><span class="run-lbl">Type:</span><span class="run-val">'   + formatRunType(r.type)      + '</span></div>';
-    runsListEl.appendChild(item);
-  }
+  runsListEl.innerHTML = '<table class="mt"><thead><tr><th>Player</th><th>Label</th><th>Type</th></tr></thead><tbody>' +
+    active.map(r => '<tr><td style="' + _edge(r.g) + '">' + (_playerCell(r.g, r.j, r.player) || '') + '</td><td>' + _esc(formatRunLabel(r.label)) +
+                    '</td><td>' + _esc(formatRunType(r.type)) + '</td></tr>').join('') + '</tbody></table>';
 }
 
 // Phases toggle button
@@ -1333,7 +1404,7 @@ function drawPressureArrow(x1, y1, x2, y2, color, alpha, sc) {
 }
 
 function drawPressures(fi) {
-  if (!showPressures || !_hasPressures) return;
+  if (!showPressureHighlights || !_hasPressures) return;   // pitch highlights have their own Visual-only button; the table is the Tabular-info one
   const period = D.meta.period[fi];
   const t = D.meta.time[fi];
   const sc = T.sc;
@@ -1380,30 +1451,27 @@ function updatePressurePanel(fi) {
   const t = D.meta.time[fi];
   pressureListEl.innerHTML = '';
   const active = D.pressures.filter(pr => pr.p === period && Math.abs(t - pr.t) <= 1.0);
+  const cnt = document.getElementById('pressure-count');
+  cnt.textContent = active.length ? active.length + ' active' : 'none now';
+  cnt.parentNode.classList.toggle('idle', !active.length);
   if (active.length === 0) {
-    const el = document.createElement('div'); el.id = 'runs-empty'; el.textContent = '—';
-    pressureListEl.appendChild(el); return;
+    pressureListEl.innerHTML = '<table class="mt"><thead><tr><th>Under pressure</th><th>Pressuring</th><th>Intensity</th></tr></thead><tbody><tr class="empt-row"><td colspan="3">No pressure at this moment</td></tr></tbody></table>';
+    return;
   }
-  for (const pr of active) {
-    const item = document.createElement('div');
-    item.className = 'run-item';
-    const recvName = (D.lineup && D.lineup[pr.rg + ':' + pr.rj]) || ('#' + pr.rj);
-    const pressorNames = pr.prs
-      .map(p => (D.lineup && D.lineup[p.g + ':' + p.j]) || ('#' + p.j))
-      .join(', ');
-    const intensity = pr.pr ? pr.pr.charAt(0).toUpperCase() + pr.pr.slice(1) : '—';
-    item.innerHTML =
-      '<div class="run-row"><span class="run-lbl">Under Pressure:</span><span class="run-val">' + recvName + '</span></div>' +
-      '<div class="run-row"><span class="run-lbl">Pressuring:</span><span class="run-val">' + pressorNames + '</span></div>' +
-      '<div class="run-row"><span class="run-lbl">Intensity:</span><span class="run-val">' + intensity + '</span></div>';
-    pressureListEl.appendChild(item);
-  }
+  pressureListEl.innerHTML = '<table class="mt"><thead><tr><th>Under pressure</th><th>Pressuring</th><th>Intensity</th></tr></thead><tbody>' +
+    active.map(pr => {
+      const recvName = (D.lineup && D.lineup[pr.rg + ':' + pr.rj]) || ('#' + pr.rj);
+      const pressors = pr.prs.map(p => _playerCell(p.g, p.j, (D.lineup && D.lineup[p.g + ':' + p.j]) || ('#' + p.j))).join(' ');
+      const intensity = pr.pr ? pr.pr.charAt(0).toUpperCase() + pr.pr.slice(1) : '';
+      return '<tr><td style="' + _edge(pr.rg) + '">' + _playerCell(pr.rg, pr.rj, recvName) + '</td><td style="white-space:normal">' + pressors +
+             '</td><td>' + (intensity ? '<span class="yes">' + _esc(intensity) + '</span>' : '') + '</td></tr>';
+    }).join('') + '</tbody></table>';
 }
 
 // ── Pressure-aware tooltip helper ────────────────────────────────────────────
 
 function _pressureTooltipExtra(g, j) {
-  if (!showPressures || !_hasPressures) return '';
+  if (!showPressureHighlights || !_hasPressures) return '';
   const period = D.meta.period[currentFi];
   const t = D.meta.time[currentFi];
   let extra = '';
@@ -1441,6 +1509,18 @@ if (_hasPressures) {
     btnPressures.classList.toggle('btn-primary',   showPressures);
     btnPressures.classList.toggle('btn-secondary', !showPressures);
     _setRightCol();
+    render(currentFi);
+  });
+}
+
+// Pressure highlights on the pitch (Visual only, defaults off)
+const btnPressureHighlights = document.getElementById('btn-pressure-highlights');
+if (_hasPressures) {
+  btnPressureHighlights.style.display = '';
+  btnPressureHighlights.addEventListener('click', () => {
+    showPressureHighlights = !showPressureHighlights;
+    btnPressureHighlights.classList.toggle('btn-primary',   showPressureHighlights);
+    btnPressureHighlights.classList.toggle('btn-secondary', !showPressureHighlights);
     render(currentFi);
   });
 }
@@ -1524,23 +1604,37 @@ function drawDefCompactness(fi) {
   ctx.setLineDash([]);
 }
 
+// Largest average coverage in the match: the compactness bar shows the current coverage relative to it.
+const _dcMax = (() => {
+  let m = 0;
+  for (const per of Object.values(D.phases || {})) for (const ph of per) for (const d of (ph.dc || [])) { const v = parseFloat(d.adc); if (v > m) m = v; }
+  return m;
+})();
+
 function updateDCPanel(fi) {
   if (!showDefCompactness || !_hasPhases) return;
   const ph = _findActivePhase(fi);
-  if (!ph) { dcLabelVal.textContent = '—'; dcAdcVal.textContent = '—'; return; }
+  const bar = document.getElementById('dc-bar'), team = document.getElementById('dc-team');
+  const reset = () => { dcLabelVal.textContent = '\u2014'; dcAdcVal.textContent = '\u2014'; bar.style.width = '0'; team.innerHTML = ''; };
+  if (!ph) { reset(); return; }
 
   const t = D.meta.time[fi];
   const dc = ph.dc || [];
-  let dcLabel = '—', dcAdc = '—';
+  let dcLabel = '\u2014', dcAdc = '\u2014', adcNum = 0;
   for (let i = 0; i < dc.length; i++) {
     if (dc[i].s <= t && dc[i].e >= t) {
-      dcLabel = dc[i].v || '—';
-      dcAdc   = dc[i].adc ? Math.round(parseFloat(dc[i].adc)).toLocaleString() : '—';
+      dcLabel = dc[i].v || '\u2014';
+      adcNum  = dc[i].adc ? parseFloat(dc[i].adc) : 0;
+      dcAdc   = adcNum ? Math.round(adcNum).toLocaleString() : '\u2014';
       break;
     }
   }
+  const dg = ph.possG ? (ph.possG === 1 ? 2 : 1) : 0;                  // the defending team is the one not in possession
   dcLabelVal.textContent = dcLabel;
   dcAdcVal.textContent   = dcAdc;
+  bar.style.width = (_dcMax > 0 && adcNum ? Math.min(100, adcNum / _dcMax * 100) : 0) + '%';
+  bar.style.background = dg ? 'linear-gradient(90deg, rgba(255,255,255,.25), ' + _teamCol(dg) + ')' : '';
+  team.innerHTML = dg ? '<span class="pl">' + _disc(dg, '').replace('class="dsc"', 'class="dsc dot"') + _esc(_teamName(dg)) + '</span>' : '';
 }
 
 // Def Compactness toggle button
@@ -1710,7 +1804,7 @@ function drawOverloadOverlay(fi) {
 
   const [bx, by] = tc(ballPos[0], ballPos[1]);
   const sc = T.sc;
-  const ballColor = D.colors['4'] || '#f5c518';
+  const ballColor = D.colors['4'] || '#ffffff';
 
   // ── Glow ring around ball ──
   ctx.save();
@@ -1945,7 +2039,10 @@ const EVENT_ICON_FAMILY = {
   sub_on: 'up', sub_off: 'down', offside_provoked: 'flag', caught_offside: 'flag', foul_throw_in: 'throw',
 };
 
-function drawEventIcon(kind, x, y, size, ink, cardFill) {
+const _pitchCtx = ctx;
+// `otherCtx` is an optional other 2D context (used to render the same icons for the events table).
+function drawEventIcon(kind, x, y, size, ink, cardFill, otherCtx) {
+  const ctx = otherCtx || _pitchCtx;
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(size / 5, size / 5);
@@ -2001,6 +2098,23 @@ function drawEventIcon(kind, x, y, size, ink, cardFill) {
     default: C(0, 0, 2.5, true);
   }
   ctx.restore();
+}
+
+// Events table icons: the same icons as the pitch labels, rendered once per kind to a small image.
+const _evIconCache = {};
+function eventIconURL(ev) {
+  const kind = EVENT_ICON_FAMILY[ev.t] || 'dot';
+  const fill = ev.t === 'card' ? cardColourFor(ev) : null;
+  const key = kind + '|' + (fill || '');
+  if (!_evIconCache[key]) {
+    const S = 20, k = 2, cv = document.createElement('canvas');
+    cv.width = cv.height = S * k;
+    const c = cv.getContext('2d');
+    c.scale(k, k);
+    drawEventIcon(kind, S / 2, S / 2, 7.5, '#ffffff', fill, c);
+    _evIconCache[key] = cv.toDataURL('image/png');
+  }
+  return _evIconCache[key];
 }
 
 // Card colour from the event's qualifiers (31 yellow, 32 second yellow, 33 red); yellow if unknown.
@@ -2307,6 +2421,17 @@ const scoreboardNotices = [
   ...scoreboardCards, ...scoreboardSubs, ...scoreboardAddedTime,
 ].sort((x, y) => x.fi - y.fi);
 
+// Added time as a small tab on the right of the ticker: it slides out once the banner has closed and stays until the period ends.
+function addedTabAt(fi) {
+  let last = null;
+  for (const n of scoreboardAddedTime) { if (n.fi > fi) break; last = n; }
+  if (!last || D.meta.period[last.fi] !== D.meta.period[fi]) return null;
+  const closed = last.fi + NOTICE_IN + NOTICE_HOLD.added + NOTICE_OUT;
+  if (fi < closed) return null;
+  const x = Math.min(1, (fi - closed) / 12);
+  return { minutes: last.minutes, t: 1 - Math.pow(1 - x, 3) };
+}
+
 function noticesAt(fi) {
   const ease = (x) => 1 - Math.pow(1 - x, 3), live = [];
   for (const n of scoreboardNotices) {
@@ -2367,7 +2492,15 @@ skipBtn.addEventListener('click', () => {
   if (target >= 0) render(target);
 });
 
+// True while a GIF or video is being made (the export buttons are disabled then).
+function _isExporting() {
+  const g = document.getElementById('btn-gen-gif'), v = document.getElementById('btn-gen-vid');
+  return !!(g && v && (g.disabled || v.disabled));
+}
+
+// The match title is in the page header on screen; the footer bar is drawn only while a GIF or video is being made.
 function drawMatchFooter() {
+  if (!_isExporting()) return;
   const L = D.lineup || {};
   const home = L['teamname_1'] || '', away = L['teamname_2'] || '';
   const parts = [(home || away) ? (home + ' vs ' + away).trim() : '', L['match_comp'] || '', L['match_venue'] || '', L['match_date'] || ''].filter(Boolean);
@@ -2389,7 +2522,7 @@ function drawScoreboard(fi) {
   const known = D.events.length > 0;
   const sc2 = scoreAt(fi);
 
-  const h = Math.round(Math.min(T.head * 0.78, T.barW * 0.96 / 10.45));   // board height inside the header bar (and never wider than the picture)
+  const h = Math.round(Math.min(T.head * 0.78, T.barW * 0.96 / 11.4));   // board height inside the header bar (and never wider than the picture)
   const widths = [2.5 * h, 2.3 * h, 2.2 * h, 2.3 * h];            // clock | home | score | away
   const tabW = 1.15 * h;                                         // white tab with the brand logo, before the clock
   const total = tabW + widths.reduce((a, b) => a + b, 0);
@@ -2409,6 +2542,19 @@ function drawScoreboard(fi) {
     ctx.fillStyle = colour; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(str, cx, cy);
   };
+
+  // added-time tab: drawn first so the plate covers its left end and it looks attached to the right edge
+  const tab = addedTabAt(fi);
+  if (tab) {
+    const vis = h * 0.95 * tab.t, xe = xTab + total;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = h * 0.3; ctx.shadowOffsetY = h * 0.08;
+    rr(xe - h * 0.4, y0, h * 0.4 + vis, h, h * 0.18, NAVY);
+    ctx.restore();
+    ctx.save(); ctx.globalAlpha = Math.max(0, (tab.t - 0.5) * 2);
+    text('+' + tab.minutes, xe + vis / 2 + h * 0.02, y0 + h / 2, h * 0.5, '#FAA51A');
+    ctx.restore();
+  }
 
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = h * 0.3; ctx.shadowOffsetY = h * 0.08;
@@ -2946,7 +3092,7 @@ function _update3DFrame(fi) {
 function _sync3DColors() {
   if (!scene3D || !_three) return;
   const THREE = _three;
-  const ballCol = new THREE.Color(D.colors['4'] || '#f5c518');
+  const ballCol = new THREE.Color(D.colors['4'] || '#ffffff');
   for (const m of Object.values(ballMeshes3D)) {
     m.material.color.set(ballCol);
     if (m.userData.fillMat) m.userData.fillMat.color.set(ballCol);
@@ -3033,6 +3179,7 @@ function render(fi) {
   updateDCPanel(fi);
   updateMeta(fi);
   slider.value = fi;
+  slider.style.setProperty('--p', (slider.max > 0 ? fi / slider.max * 100 : 0) + '%');   // played part of the track
   currentFi    = fi;
   updateSkipButton(fi);
 
@@ -3044,7 +3191,15 @@ function render(fi) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   setupTransform(W, H);
+  // On screen the pitch has rounded corners; exports stay square so the file has no transparent corners.
+  const roundPitch = !_isExporting();
+  if (roundPitch) {
+    ctx.save(); ctx.beginPath();
+    ctx.roundRect(Math.floor(T.ox), Math.floor(T.oy), Math.ceil(T.barW), (T.Wp + 2 * MARGIN) * T.sc, 16);
+    ctx.clip();
+  }
   drawPitch(W, H);
+  if (roundPitch) ctx.restore();
   if (showEvents) drawEvent(fi);
   drawDefCompactness(fi);
   drawPhaseOverlay(fi);
@@ -3202,16 +3357,16 @@ function buildAppearanceControls() {
     };
 
     const group = document.createElement('div');
-    group.style.cssText = 'display:flex;gap:4px;align-items:center;padding:4px 6px;background:rgba(255,255,255,0.02);border-radius:3px;border:1px solid rgba(255,255,255,0.08)';
+    group.className = 'src-style';
 
     const label = document.createElement('span');
     label.textContent = src.label;
-    label.style.cssText = 'font-size:11px;color:#aaa;font-weight:600;min-width:60px;white-space:nowrap';
+    label.className = 'src-style-name';
     group.appendChild(label);
 
     // Filled checkbox
     const fillLabel = document.createElement('label');
-    fillLabel.style.cssText = 'display:flex;align-items:center;gap:3px;cursor:pointer;font-size:11px;color:#ccc';
+    fillLabel.className = 'src-style-opt';
     const fillCb = document.createElement('input');
     fillCb.type = 'checkbox';
     fillCb.checked = src.fill;
@@ -3226,7 +3381,7 @@ function buildAppearanceControls() {
 
     // Dashed checkbox
     const dashLabel = document.createElement('label');
-    dashLabel.style.cssText = 'display:flex;align-items:center;gap:3px;cursor:pointer;font-size:11px;color:#ccc';
+    dashLabel.className = 'src-style-opt';
     const dashCb = document.createElement('input');
     dashCb.type = 'checkbox';
     dashCb.checked = src.dash;
@@ -3241,7 +3396,7 @@ function buildAppearanceControls() {
 
     // Opacity slider
     const opacityLabel = document.createElement('label');
-    opacityLabel.style.cssText = 'display:flex;align-items:center;gap:3px;font-size:11px;color:#ccc';
+    opacityLabel.className = 'src-style-opt';
     opacityLabel.appendChild(document.createTextNode('α'));
     const opacitySlider = document.createElement('input');
     opacitySlider.type = 'range';
@@ -3249,7 +3404,7 @@ function buildAppearanceControls() {
     opacitySlider.max = '1.0';
     opacitySlider.step = '0.05';
     opacitySlider.value = src.alpha;
-    opacitySlider.style.cssText = 'width:40px;accent-color:#FAA51A;cursor:pointer';
+    opacitySlider.className = 'src-style-range';
     opacitySlider.addEventListener('change', () => {
       window._sourceStyles[src.id].alpha = parseFloat(opacitySlider.value);
       render(currentFi);
@@ -3259,13 +3414,13 @@ function buildAppearanceControls() {
 
     // Suffix input
     const suffixLabel = document.createElement('label');
-    suffixLabel.style.cssText = 'display:flex;align-items:center;gap:3px;font-size:11px;color:#ccc';
+    suffixLabel.className = 'src-style-opt';
     suffixLabel.appendChild(document.createTextNode('Suffix'));
     const suffixInput = document.createElement('input');
     suffixInput.type = 'text';
     suffixInput.value = src.suffix;
     suffixInput.maxLength = '3';
-    suffixInput.style.cssText = 'width:30px;padding:2px 4px;font-size:10px;background:#1a1a1a;border:1px solid #333;color:#ccc;border-radius:2px';
+    suffixInput.className = 'src-style-text';
     suffixInput.addEventListener('change', () => {
       window._sourceStyles[src.id].suffix = suffixInput.value;
       render(currentFi);
@@ -3283,6 +3438,7 @@ function buildAppearanceControls() {
 
 slider.max   = TOTAL_FRAMES - 1;
 slider.value = 0;
+slider.style.setProperty('--p', '0%');
 slider.addEventListener('input', () => { stopPlayback(); render(parseInt(slider.value, 10)); });
 
 btnPlay.addEventListener('click', togglePlay);
@@ -3314,7 +3470,18 @@ inpSec.addEventListener('change', () => {
 // Canvas resize
 function resizeCanvas() {
   const wrap = document.getElementById('pitch-wrap');
-  const W = wrap.clientWidth, H = wrap.clientHeight;
+  let W = wrap.clientWidth, H = wrap.clientHeight;
+  // 2D: the pane is only as tall as the pitch picture (no empty band below it), so the controls and tables sit directly under/beside it
+  const mc = document.getElementById('main-content');
+  if (is3D || !D || !D.pitch) { if (mc.style.height) { mc.style.height = ''; H = wrap.clientHeight; } }
+  else {
+    const dataW = D.pitch.L + 2 * MARGIN, dataH = D.pitch.W + 2 * MARGIN;
+    const head = Math.round(Math.min(68, Math.max(66, H * 0.1)));
+    const natural = Math.ceil(head + dataH * (W / dataW) + (_isExporting() ? 28 : 0));
+    const maxH = Math.round(Math.min(780, Math.max(600, window.innerHeight * 0.76)));
+    const want = Math.min(natural, maxH);
+    if (Math.abs(want - H) > 2) { mc.style.height = want + 'px'; H = wrap.clientHeight; }
+  }
   DPR = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
   canvas.width  = Math.round(W * DPR);
   canvas.height = Math.round(H * DPR);
@@ -3338,19 +3505,14 @@ const overlaysLabel = overlaysToggle.nextElementSibling;
 const overlaysContent = document.getElementById('overlays-content');
 
 function updateOverlaysDisplay() {
-  if (overlaysToggle.checked) {
-    overlaysContent.style.display = 'block';
-    overlaysLabel.querySelector('span').textContent = '▼ Overlays';
-  } else {
-    overlaysContent.style.display = 'none';
-    overlaysLabel.querySelector('span').textContent = '▶ Overlays';
-  }
+  overlaysToggle.checked = true;           // the overlays bar is always open
+  overlaysContent.style.display = 'flex';
+  overlaysLabel.querySelector('span').textContent = 'Overlays';
 }
 
-overlaysToggle.addEventListener('change', updateOverlaysDisplay);
 updateOverlaysDisplay(); // Initialize
 
-_setRightCol();
+_applyDock();
 
 document.getElementById('btn-3d').addEventListener('click', () => {
   is3D = !is3D;
@@ -3372,12 +3534,11 @@ document.addEventListener('keydown', (e) => {
 // ── Team colour pickers ───────────────────────────────────────────────────────
 const colorPick1 = document.getElementById('color-team1');
 const colorPick2 = document.getElementById('color-team2');
-const colorPickB = document.getElementById('color-ball');
 
 // Initialise from payload colours
 colorPick1.value = D.colors['1'] || '#4682b4';
 colorPick2.value = D.colors['2'] || '#cd5c5c';
-colorPickB.value = D.colors['4'] || '#f5c518';
+D.colors['4'] = '#ffffff';                     // the ball is always white (no picker); only the 3D view and the overload label use this colour
 
 // Second colour per team: a checkbox switches it on, a second picker sets it. D.colors2 holds only the active ones.
 D.colors2 = D.colors2 || {};
@@ -3408,7 +3569,7 @@ function setTitleVisible(on) {
   const awayName = L['teamname_2'] || '';
   const titleEl  = document.getElementById('match-title');
   if (!titleEl) return;
-  if (!homeName && !awayName) { titleEl.style.display = 'none'; return; }
+  if (!homeName && !awayName) { titleEl.style.display = 'none'; document.getElementById('bar-title').hidden = true; return; }
 
   const comp = L['match_comp'] || '';
   const venue = L['match_venue'] || '';
@@ -3422,11 +3583,12 @@ function setTitleVisible(on) {
 
   titleEl.innerHTML = html;
   titleEl.style.display = 'none';
+  document.getElementById('bar-name').textContent = homeName + ' vs ' + awayName;     // page header title
+  document.getElementById('bar-sub').textContent = [comp, venue, date].filter(Boolean).join('  ·  ');
 })();
 
 colorPick1.addEventListener('input', () => { D.colors['1'] = colorPick1.value; _sync3DColors(); render(currentFi); });
 colorPick2.addEventListener('input', () => { D.colors['2'] = colorPick2.value; _sync3DColors(); render(currentFi); });
-colorPickB.addEventListener('input', () => { D.colors['4'] = colorPickB.value; _sync3DColors(); render(currentFi); });
 
 // ── Tails toggle ─────────────────────────────────────────────────────────────
 const btnTails    = document.getElementById('btn-tails');
@@ -3458,36 +3620,24 @@ overlayTextSizeSlider.addEventListener('input', () => {
 });
 
 // ── In-view toggle (3-state cycle) ───────────────────────────────────────────
-const btnInview = document.getElementById('btn-inview');
-
-const _inViewLabels = [
-  '&#128065; In-view only',
-  '&#128065; In-view only',
-  '&#128065; Dim out-of-view',
-];
+const btnInview = document.getElementById('btn-inview');   // segmented control: All | In view | Dim others
 
 function _applyInViewStyle() {
-  if (inViewMode === 0) {
-    btnInview.className = 'btn btn-secondary';
-    btnInview.style.borderColor = '';
-  } else if (inViewMode === 1) {
-    btnInview.className = 'btn btn-primary';
-    btnInview.style.borderColor = '';
-  } else {
-    // Mode 2: amber border to distinguish from mode 1
-    btnInview.className = 'btn btn-secondary';
-    btnInview.style.borderColor = '#FAA51A';
-    btnInview.style.color = '#FAA51A';
-  }
-  btnInview.innerHTML = _inViewLabels[inViewMode];
+  btnInview.querySelectorAll('button').forEach(s => {
+    const on = Number(s.dataset.mode) === inViewMode;
+    s.classList.toggle('on', on);
+    s.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
 }
 
 const hasBvData = D.entities.some(e => e._bvSet !== null);
 if (!hasBvData) {
   btnInview.style.display = 'none';
 } else {
-  btnInview.addEventListener('click', () => {
-    inViewMode    = (inViewMode + 1) % 3;
+  btnInview.addEventListener('click', ev => {
+    const s = ev.target.closest('button[data-mode]');
+    if (!s) return;
+    inViewMode = Number(s.dataset.mode);
     _applyInViewStyle();
     render(currentFi);
   });
@@ -3596,11 +3746,12 @@ function _closeAllBottomPanels() {
         '<td>' + matchMin + ':' + matchSec + '</td>' +
         '<td>' + formatRunLabel(r.label) + '</td>' +
         '<td>' + formatRunType(r.type)   + '</td>' +
-        '<td>' + teamStr + '</td>' +
+        '<td><span class="pl">' + _teamDot(r.g) + teamStr + '</span></td>' +
         '<td>' + (r.player || '—') + '</td>' +
-        '<td>' + (r.j || '—') + '</td>' +
+        '<td>' + (r.j ? _disc(r.g, r.j) : '—') + '</td>' +
         '<td>' + _lineBrokenStr(r.dlb)  + '</td>' +
         '<td>' + _lineBrokenStr(r.mlb)  + '</td>';
+      tr.firstElementChild.style.boxShadow = 'inset 3px 0 0 ' + _edgeCol(r.g);
       tr.addEventListener('click', () => {
         stopPlayback();
         const fi = findFrameByTime(r.period, parseInt(matchMin, 10), parseInt(matchSec, 10));
@@ -3620,13 +3771,13 @@ function _closeAllBottomPanels() {
       body.style.display    = 'block';
       filters.style.display = 'flex';
       btnToggle.className   = 'btn btn-primary';
-      btnToggle.innerHTML   = '&#9660; Runs (' + allRuns.length + ')';
+      btnToggle.innerHTML   = 'Runs (' + allRuns.length + ')';
       if (tbody.children.length === 0) renderTable();
     } else {
       body.style.display    = 'none';
       filters.style.display = 'none';
       btnToggle.className   = 'btn btn-secondary';
-      btnToggle.innerHTML   = '&#9654; Runs (' + allRuns.length + ')';
+      btnToggle.innerHTML   = 'Runs (' + allRuns.length + ')';
     }
   });
 })();
@@ -3725,7 +3876,8 @@ function _closeAllBottomPanels() {
       const tr = document.createElement('tr');
       const jerseyStr  = ph.initJ !== null && ph.initJ !== undefined ? ph.initJ : '—';
       const overloadStr = ph.ol && ph.ol.length > 0 ? 'Yes' : 'No';
-      tr.innerHTML = '<td>' + (ph.phId !== undefined ? ph.phId : '—') + '</td><td>P' + ph.period + '</td><td>' + matchMin + ':' + matchSec + '</td><td>' + ph.l + '</td><td>' + teamStr + '</td><td>' + initStr + '</td><td>' + jerseyStr + '</td><td>' + goalStr + '</td><td>' + shotsStr + '</td><td>' + overloadStr + '</td>';
+      tr.innerHTML = '<td>' + (ph.phId !== undefined ? ph.phId : '—') + '</td><td>P' + ph.period + '</td><td>' + matchMin + ':' + matchSec + '</td><td>' + ph.l + '</td><td><span class="pl">' + _teamDot(ph.possG) + teamStr + '</span></td><td>' + initStr + '</td><td>' + (ph.initJ ? _disc(ph.possG, ph.initJ) : jerseyStr) + '</td><td>' + goalStr + '</td><td>' + shotsStr + '</td><td>' + overloadStr + '</td>';
+      tr.firstElementChild.style.boxShadow = 'inset 3px 0 0 ' + _edgeCol(ph.possG);
       tr.addEventListener('click', () => {
         stopPlayback();
         const frameIdx = findFrameByTime(ph.period, parseInt(matchMin, 10), parseInt(matchSec, 10));
@@ -3745,13 +3897,13 @@ function _closeAllBottomPanels() {
       body.style.display    = 'block';
       filters.style.display = 'flex';
       btnToggle.className   = 'btn btn-primary';
-      btnToggle.innerHTML   = '&#9660; Phases (' + allPhases.length + ')';
+      btnToggle.innerHTML   = 'Phases (' + allPhases.length + ')';
       if (tbody.children.length === 0) renderTable();
     } else {
       body.style.display    = 'none';
       filters.style.display = 'none';
       btnToggle.className   = 'btn btn-secondary';
-      btnToggle.innerHTML   = '&#9654; Phases (' + allPhases.length + ')';
+      btnToggle.innerHTML   = 'Phases (' + allPhases.length + ')';
     }
   });
 })();
@@ -3865,7 +4017,8 @@ function _closeAllBottomPanels() {
       const tr = document.createElement('tr');
       const eventIdStr = ev.eid !== null && ev.eid !== undefined ? ev.eid : '—';
       const evJerseyStr = ev.jn !== null && ev.jn !== undefined ? ev.jn : '—';
-      tr.innerHTML = '<td>P' + ev.p + '</td><td>' + mm + ':' + ss + '</td><td>' + ev.t + '</td><td>' + teamStr + '</td><td>' + playerStr + '</td><td>' + evJerseyStr + '</td><td>' + qualifiersStr + '</td><td>' + eventIdStr + '</td>';
+      tr.innerHTML = '<td>P' + ev.p + '</td><td>' + mm + ':' + ss + '</td><td class="ev-cell"><img class="ev-ic" alt="" src="' + eventIconURL(ev) + '">' + ev.t + '</td><td>' + eventIdStr + '</td><td>' + (ev.ti !== null && ev.ti !== undefined ? '<span class="pl">' + _teamDot(ev.g) + teamStr + '</span>' : teamStr) + '</td><td>' + playerStr + '</td><td>' + (ev.ti !== null && ev.ti !== undefined && ev.jn !== null && ev.jn !== undefined ? _disc(ev.g, ev.jn) : evJerseyStr) + '</td><td>' + qualifiersStr + '</td>';
+      if (ev.ti !== null && ev.ti !== undefined) tr.firstElementChild.style.boxShadow = 'inset 3px 0 0 ' + _edgeCol(ev.g);
       tr.addEventListener('click', () => {
         stopPlayback();
         render(ev.fi);
@@ -3884,13 +4037,13 @@ function _closeAllBottomPanels() {
       body.style.display    = 'block';
       filters.style.display = 'flex';
       btnToggle.className   = 'btn btn-primary';
-      btnToggle.innerHTML   = '&#9660; Events (' + D.events.length + ')';
+      btnToggle.innerHTML   = 'Events (' + D.events.length + ')';
       if (tbody.children.length === 0) renderTable();
     } else {
       body.style.display    = 'none';
       filters.style.display = 'none';
       btnToggle.className   = 'btn btn-secondary';
-      btnToggle.innerHTML   = '&#9654; Events (' + D.events.length + ')';
+      btnToggle.innerHTML   = 'Events (' + D.events.length + ')';
     }
   });
 })();
@@ -4001,6 +4154,8 @@ function _closeAllBottomPanels() {
       // captureStream(fps) drives timestamps from the wall clock so the encoder
       // produces a correctly-timed video; requestFrame() hints encourage capture
       // immediately after each render rather than between renders.
+      btnVid.disabled = true; btnGen.disabled = true;   // export mode: footer bar reserved, so size the canvas and lay out before measuring the crop
+      resizeCanvas();
       const pr = pitchRect();
       const cropCanvas = document.createElement('canvas');
       cropCanvas.width  = pr.w;
@@ -4018,7 +4173,7 @@ function _closeAllBottomPanels() {
           'Done! Video ready (' + mimeType.split(';')[0] + ', ' + speedMult + '×, ' + pr.w + '×' + pr.h + ').');
         setProgress(0);
         btnVid.disabled = false; btnGen.disabled = false;
-        render(currentFi);
+        resizeCanvas();
       };
 
       // speedMult compresses the clip: at 3× a 30s clip becomes a 10s video
@@ -4073,6 +4228,8 @@ function _closeAllBottomPanels() {
       const step  = Math.max(1, Math.round(BASE_FPS / fps * speedMult));
       const delay = Math.round(1000 / fps);
       // Crop to pitch area (no black bars), then apply the user's scale factor
+      btnGen.disabled = true;   // export mode: footer bar reserved, so size the canvas and lay out before measuring the crop
+      resizeCanvas();
       const pr = pitchRect();
       const W  = Math.max(1, Math.round(pr.w * scale));
       const H  = Math.max(1, Math.round(pr.h * scale));
@@ -4129,7 +4286,7 @@ function _closeAllBottomPanels() {
           'Done! ' + total + ' frames, ' + W + '×' + H + 'px.');
         setProgress(0);
         btnGen.disabled = false;
-        render(currentFi);  // restore current frame
+        resizeCanvas();  // back to the on-screen layout and restore current frame
       });
 
       captureNext();
@@ -4164,4 +4321,46 @@ if (document.fonts && document.fonts.load) {
   }
   new ResizeObserver(fit).observe(app);
   fit();
+})();
+
+
+// ── Export dialog: the export controls open as a dialog from the "Export clip" button ──
+(function () {
+  const dlg = document.getElementById('gif-panel'), backdrop = document.getElementById('export-backdrop');
+  const openBtn = document.getElementById('btn-export-open'), closeBtn = document.getElementById('btn-export-close');
+  const setOpen = on => {
+    document.body.classList.toggle('export-open', on);
+    backdrop.hidden = !on;
+    if (on) closeBtn.focus(); else openBtn.focus();
+  };
+  openBtn.addEventListener('click', () => setOpen(true));
+  closeBtn.addEventListener('click', () => setOpen(false));
+  backdrop.addEventListener('click', () => setOpen(false));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('export-open')) setOpen(false); });
+})();
+
+
+// ── Appearance drop-down (team colours, source styling, overlay text size) ──
+(function () {
+  const btn = document.getElementById('btn-appearance'), box = document.getElementById('appearance-drop');
+  btn.addEventListener('click', () => {
+    box.hidden = !box.hidden;
+    btn.setAttribute('aria-expanded', String(!box.hidden));
+    btn.classList.toggle('open', !box.hidden);
+  });
+})();
+
+
+// ── Tabs: Events / Phases / Runs share one dock, one open at a time ──
+(function () {
+  const bar = document.getElementById('dock-tabs');
+  let first = null;
+  for (const [wrapId, btnId] of [['events-wrap', 'btn-events-toggle'], ['phases-wrap', 'btn-phases-toggle'], ['runs-wrap', 'btn-runs-toggle']]) {
+    const wrap = document.getElementById(wrapId), btn = document.getElementById(btnId);
+    if (!wrap || !btn || wrap.style.display !== 'block') continue;
+    btn.setAttribute('role', 'tab');
+    bar.appendChild(btn);
+    if (!first) first = btn;
+  }
+  if (first) first.click();            // the first table opens by default
 })();

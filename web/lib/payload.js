@@ -26,6 +26,20 @@ export function neutralise(value) {
 const r2 = (v) => roundTo(v, 2);
 
 /**
+ * Some feeds report the ball's z with a constant offset (roughly the ball's size), so a ball resting on the
+ * ground reads above 0. Estimate that offset as the 10th percentile (linear interpolation) of the z values
+ * that are real numbers >= 0; null/NaN/negative samples are ignored. Returns 0 when there is nothing to use.
+ */
+export function ballZOffset(zs) {
+  const v = [];
+  for (const z of zs) if (typeof z === 'number' && Number.isFinite(z) && z >= 0) v.push(z);
+  if (!v.length) return 0;
+  v.sort((a, b) => a - b);
+  const pos = 0.1 * (v.length - 1), lo = Math.floor(pos), hi = Math.ceil(pos);
+  return v[lo] + (v[hi] - v[lo]) * (pos - lo);
+}
+
+/**
  * ``frames``: parseEptsFrames output; ``events``: placed events; returns the payload object.
  * ``extras``: {lineup, panels:{phasesByPeriod, runsByPeriod, pressures}, teamColors, teamColors2, vodUrls, ballImage}.
  */
@@ -96,13 +110,14 @@ export function buildPayload(frames, events, extras) {
     a.fi.push(fi); a.x.push(r2(rows.x[r])); a.y.push(r2(rows.y[r]));
   }
   const ball = acc[frames.ballEntity];
+  const zOff = ballZOffset(frames.ballZ);   // viz z = reported z minus this, so z = 0 is the ball on the ground
   for (let i = 0; i < nLines; i++) {
     const fi = lineFi[i];
     if (!Number.isNaN(frames.ballZ[i])) ball.anyZ = true;
     if (frames.ballVis[i]) ball.bv.push(fi);
     if (Number.isNaN(frames.ballX[i]) || Number.isNaN(frames.ballY[i])) continue;
     ball.fi.push(fi); ball.x.push(r2(frames.ballX[i])); ball.y.push(r2(frames.ballY[i]));
-    ball.z.push(Number.isNaN(frames.ballZ[i]) ? 0 : r2(frames.ballZ[i]));
+    ball.z.push(Number.isNaN(frames.ballZ[i]) ? 0 : Math.max(0, r2(frames.ballZ[i] - zOff)));
   }
   const order = entities.map((_, i) => i).sort((p, q) => entities[p].g - entities[q].g || entities[p].j - entities[q].j);
   const entityOut = [];
