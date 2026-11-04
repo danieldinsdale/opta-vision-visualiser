@@ -5,3 +5,7 @@
 @font-face { font-family: 'Roboto'; font-weight: 400; font-style: normal; font-display: swap; src: url('../vendor/fonts/roboto-latin-400-normal.woff2') format('woff2'); }
 @font-face { font-family: 'Roboto'; font-weight: 700; font-style: normal; font-display: swap; src: url('../vendor/fonts/roboto-latin-700-normal.woff2') format('woff2'); }
 @font-face { font-family: 'Roboto'; font-weight: 900; font-style: normal; font-display: swap; src: url('../vendor/fonts/roboto-latin-900-normal.woff2') format('woff2'); }
+
+/* Brand data typeface: DM Mono (SIL OFL 1.1), bundled. Numbers, times and tabular data. */
+@font-face { font-family: 'DM Mono'; font-weight: 400; font-style: normal; font-display: swap; src: url('../vendor/fonts/dm-mono-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'DM Mono'; font-weight: 500; font-style: normal; font-display: swap; src: url('../vendor/fonts/dm-mono-latin-500-normal.woff2') format('woff2'); }

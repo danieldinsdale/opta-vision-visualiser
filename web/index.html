@@ -13,7 +13,7 @@
 <body>
 <aside id="sidebar">
   <div class="side-head">
-    <img class="side-logo" src="assets/opta-ai-logo_white.png" alt="Opta AI">
+    <img class="side-logo" src="assets/opta-vision-logo-white.svg" alt="Opta Vision">
     <button type="button" id="side-close" class="icon-btn" aria-label="Hide sidebar" title="Hide sidebar" aria-controls="sidebar" aria-expanded="true">&#8249;</button>
   </div>
 
@@ -89,10 +89,17 @@
   <p class="hint priv">Your data stays in this browser. Nothing is uploaded.</p>
 </aside>
 
-<main id="stage">
+<nav id="rail" aria-label="Sidebar">
+  <img src="assets/favicon.png" alt="Opta AI">
   <button type="button" id="side-open" class="icon-btn" aria-label="Show sidebar" title="Show sidebar" aria-controls="sidebar" aria-expanded="false" hidden>&#8250;</button>
+</nav>
+
+<main id="stage">
   <div id="empty">
-    <p id="empty-text">Drop your data package into the sidebar to get started.</p>
+    <img class="empty-mark" src="assets/opta-vision-logo-white.svg" alt="Opta Vision">
+    <h1 id="empty-title">Load a match</h1>
+    <p id="empty-text">Drop your data package here to get started.</p>
+    <button type="button" id="empty-choose" class="primary">Choose a file</button>
     <p class="hint">Everything runs in your browser. Files are not uploaded anywhere.</p>
   </div>
   <iframe id="frame" title="Pitch animation" hidden></iframe>

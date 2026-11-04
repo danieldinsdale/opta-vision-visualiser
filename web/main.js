@@ -285,12 +285,19 @@ function setMode(mode) {
     tabs[k].classList.toggle('on', k === mode);
     tabs[k].setAttribute('aria-selected', String(k === mode));
   }
+  emptyChoose.hidden = mode === 'sdapi';
   els.emptyText.textContent = {
-    pkg: 'Drop your data package into the sidebar to get started.',
-    local: 'Drop your match files into the sidebar, then click Load data.',
+    pkg: 'Drop your data package here to get started.',
+    local: 'Drop your match files here, then click Load data in the sidebar.',
     sdapi: 'Enter your SDAPI key and an Opta Game UUID in the sidebar, then click Fetch from SDAPI.',
   }[mode];
 }
+// The start screen's button opens the file picker of the current mode (SDAPI has none, so it hides).
+const emptyChoose = $('empty-choose');
+emptyChoose.addEventListener('click', () => {
+  const input = !els.pkgPanel.hidden ? $('f-package') : !els.localPanel.hidden ? $('f-own') : null;
+  if (input) input.click();
+});
 els.modePkg.addEventListener('click', () => setMode('pkg'));
 els.modeLocal.addEventListener('click', () => setMode('local'));
 
