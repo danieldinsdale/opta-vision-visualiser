@@ -1061,9 +1061,21 @@ function formatRunType(s) {
 // ── Info window helpers: team-colour jersey discs, Yes/No badges ──
 function _esc(s) { return String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch])); }
 function _teamCol(g) { return (D.colors && D.colors[g]) || '#888888'; }
+// Jersey disc as drawn on the pitch: two-colour teams split left/right, the same soft 3D shading, the same outline
+// rule (dark when both colours are light, light otherwise) and the same number colour rule (black on light kits,
+// white on dark ones, white with a dark outline when the two colours are one light and one dark).
 function _disc(g, j) {
-  const col = _teamCol(g), ink = isLightColour(col) ? '#111111' : '#ffffff';
-  return '<span class="dsc" style="background:' + col + ';color:' + ink + '">' + (j !== null && j !== undefined && j !== '' ? _esc(j) : '') + '</span>';
+  const c1 = _teamCol(g), c2 = teamColour2(g);
+  const l1 = isLightColour(c1), l2 = c2 ? isLightColour(c2) : l1;
+  const base = c2 ? 'linear-gradient(90deg,' + c1 + ' 50%,' + c2 + ' 50%)' : 'linear-gradient(' + c1 + ',' + c1 + ')';
+  const shade = 'radial-gradient(circle,rgba(0,0,0,0) 55%,rgba(0,0,0,.2) 100%),' +
+                'linear-gradient(135deg,rgba(255,255,255,.18) 0%,rgba(255,255,255,0) 50%,rgba(0,0,0,0) 50%,rgba(0,0,0,.24) 100%),';
+  const border = (l1 && l2) ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.45)';
+  let ink, extra = '';
+  if (l1 !== l2) { ink = '#ffffff'; extra = ';text-shadow:0 0 1.5px #000,0 0 1.5px #000,0 0 1.5px #000,0 0 1px #000'; }
+  else ink = l1 ? '#000000' : '#ffffff';
+  const label = j !== null && j !== undefined && j !== '' ? _esc(j) : '';
+  return '<span class="dsc" style="background:' + shade + base + ';background-origin:border-box;background-clip:border-box;border-color:' + border + ';color:' + ink + extra + '">' + label + '</span>';
 }
 function _teamName(g) { return g === 1 ? (D.lineup && D.lineup['teamname_1'] || 'Home') : g === 2 ? (D.lineup && D.lineup['teamname_2'] || 'Away') : ''; }
 function _jerseyByName(g, name) {
@@ -1076,14 +1088,19 @@ function _playerCell(g, j, name) {
   return '<span class="pl">' + _disc(g, j) + _esc(name) + '</span>';
 }
 function _yesNo(v) { return v === 'True' ? '<span class="yes">Yes</span>' : v === 'False' ? '<span class="no">No</span>' : ''; }
-// Edge colour for a team's rows: the team colour, or a light grey when that colour is too dark to read on the dark panel.
-function _edgeCol(g) {
-  const h = _teamCol(g).replace('#', '');
+// Edge colours for a team's rows (as on the score ticker: both kit colours when the team has two). A colour that is too
+// dark to read on the dark panel is shown as a light grey instead.
+function _edgeOf(hex) {
+  const h = String(hex || '#888888').replace('#', '');
   const v = h.length === 3 ? h.split('').map(c => parseInt(c + c, 16)) : [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
-  return (0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2]) < 70 ? '#8a93a6' : _teamCol(g);
+  return (0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2]) < 35 ? "#8a93a6" : "#" + h;
+}
+function _edgeBg(g) {
+  const c1 = _edgeOf(_teamCol(g)), c2 = teamColour2(g) ? _edgeOf(teamColour2(g)) : c1;
+  return 'background-image:linear-gradient(to bottom,' + c1 + ' 50%,' + c2 + ' 50%);background-size:4px 100%;background-repeat:no-repeat;background-position:left top';
 }
 function _teamDot(g) { return ''; }   // team column is plain text (the jersey disc carries the team colour)
-function _edge(g) { return 'box-shadow:inset 3px 0 0 ' + _edgeCol(g); }
+function _edge(g) { return _edgeBg(g); }
 
 function _clearPhasePanel() {
   phaseTitleEl.textContent   = '—';
@@ -3551,9 +3568,10 @@ for (const g of [1, 2]) {
   box.addEventListener('change', () => {
     pick.hidden = !box.checked;
     if (box.checked) D.colors2[g] = remembered; else delete D.colors2[g];
+    document.dispatchEvent(new Event('kitchange'));
     render(currentFi);
   });
-  pick.addEventListener('input', () => { remembered = pick.value; D.colors2[g] = pick.value; render(currentFi); });
+  pick.addEventListener('input', () => { remembered = pick.value; D.colors2[g] = pick.value; document.dispatchEvent(new Event('kitchange')); render(currentFi); });
 }
 
 // The HTML title above the canvas is used in the 3D view only; in 2D the title is drawn in the footer bar.
@@ -3587,8 +3605,8 @@ function setTitleVisible(on) {
   document.getElementById('bar-sub').textContent = [comp, venue, date].filter(Boolean).join('  ·  ');
 })();
 
-colorPick1.addEventListener('input', () => { D.colors['1'] = colorPick1.value; _sync3DColors(); render(currentFi); });
-colorPick2.addEventListener('input', () => { D.colors['2'] = colorPick2.value; _sync3DColors(); render(currentFi); });
+colorPick1.addEventListener('input', () => { D.colors['1'] = colorPick1.value; _sync3DColors(); document.dispatchEvent(new Event('kitchange')); render(currentFi); });
+colorPick2.addEventListener('input', () => { D.colors['2'] = colorPick2.value; _sync3DColors(); document.dispatchEvent(new Event('kitchange')); render(currentFi); });
 
 // ── Tails toggle ─────────────────────────────────────────────────────────────
 const btnTails    = document.getElementById('btn-tails');
@@ -3708,6 +3726,7 @@ function _closeAllBottomPanels() {
   players.forEach(n  => { const o = document.createElement('option'); o.value = n; o.textContent = n; ruFltPlayer.appendChild(o); });
 
   [ruFltPeriod, ruFltLabel, ruFltType, ruFltTeam, ruFltPlayer, ruFltDlb, ruFltMlb].forEach(s => s.addEventListener('change', renderTable));
+  document.addEventListener('kitchange', () => { if (tbody.children.length) renderTable(); });   // team colours changed
 
   function _lineBrokenStr(v) { return v === 1 ? 'Yes' : 'No'; }  // absent = No
 
@@ -3751,7 +3770,7 @@ function _closeAllBottomPanels() {
         '<td>' + (r.j ? _disc(r.g, r.j) : '—') + '</td>' +
         '<td>' + _lineBrokenStr(r.dlb)  + '</td>' +
         '<td>' + _lineBrokenStr(r.mlb)  + '</td>';
-      tr.firstElementChild.style.boxShadow = 'inset 3px 0 0 ' + _edgeCol(r.g);
+      tr.firstElementChild.style.cssText += ';' + _edgeBg(r.g);
       tr.addEventListener('click', () => {
         stopPlayback();
         const fi = findFrameByTime(r.period, parseInt(matchMin, 10), parseInt(matchSec, 10));
@@ -3836,6 +3855,7 @@ function _closeAllBottomPanels() {
   });
 
   [phFltPeriod, phFltType, phFltTeam, phFltInit, phFltGoal, phFltShots, phFltOverload].forEach(s => s.addEventListener('change', renderTable));
+  document.addEventListener('kitchange', () => { if (tbody.children.length) renderTable(); });   // team colours changed
 
   function renderTable() {
     const fp  = phFltPeriod.value;
@@ -3877,7 +3897,7 @@ function _closeAllBottomPanels() {
       const jerseyStr  = ph.initJ !== null && ph.initJ !== undefined ? ph.initJ : '—';
       const overloadStr = ph.ol && ph.ol.length > 0 ? 'Yes' : 'No';
       tr.innerHTML = '<td>' + (ph.phId !== undefined ? ph.phId : '—') + '</td><td>P' + ph.period + '</td><td>' + matchMin + ':' + matchSec + '</td><td>' + ph.l + '</td><td><span class="pl">' + _teamDot(ph.possG) + teamStr + '</span></td><td>' + initStr + '</td><td>' + (ph.initJ ? _disc(ph.possG, ph.initJ) : jerseyStr) + '</td><td>' + goalStr + '</td><td>' + shotsStr + '</td><td>' + overloadStr + '</td>';
-      tr.firstElementChild.style.boxShadow = 'inset 3px 0 0 ' + _edgeCol(ph.possG);
+      tr.firstElementChild.style.cssText += ';' + _edgeBg(ph.possG);
       tr.addEventListener('click', () => {
         stopPlayback();
         const frameIdx = findFrameByTime(ph.period, parseInt(matchMin, 10), parseInt(matchSec, 10));
@@ -3976,6 +3996,7 @@ function _closeAllBottomPanels() {
   });
 
   [fltPeriod, fltType, fltTeam, fltPlayer, fltQualifier].forEach(s => s.addEventListener('change', renderTable));
+  document.addEventListener('kitchange', () => { if (tbody.children.length) renderTable(); });   // team colours changed
 
   function renderTable() {
     const fp  = fltPeriod.value;
@@ -4018,7 +4039,7 @@ function _closeAllBottomPanels() {
       const eventIdStr = ev.eid !== null && ev.eid !== undefined ? ev.eid : '—';
       const evJerseyStr = ev.jn !== null && ev.jn !== undefined ? ev.jn : '—';
       tr.innerHTML = '<td>P' + ev.p + '</td><td>' + mm + ':' + ss + '</td><td class="ev-cell"><img class="ev-ic" alt="" src="' + eventIconURL(ev) + '">' + ev.t + '</td><td>' + eventIdStr + '</td><td>' + (ev.ti !== null && ev.ti !== undefined ? '<span class="pl">' + _teamDot(ev.g) + teamStr + '</span>' : teamStr) + '</td><td>' + playerStr + '</td><td>' + (ev.ti !== null && ev.ti !== undefined && ev.jn !== null && ev.jn !== undefined ? _disc(ev.g, ev.jn) : evJerseyStr) + '</td><td>' + qualifiersStr + '</td>';
-      if (ev.ti !== null && ev.ti !== undefined) tr.firstElementChild.style.boxShadow = 'inset 3px 0 0 ' + _edgeCol(ev.g);
+      if (ev.ti !== null && ev.ti !== undefined) tr.firstElementChild.style.cssText += ';' + _edgeBg(ev.g);
       tr.addEventListener('click', () => {
         stopPlayback();
         render(ev.fi);
