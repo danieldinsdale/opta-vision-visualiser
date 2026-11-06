@@ -29,7 +29,7 @@
     <div class="drop" id="pkg-drop">
       <div class="drop-icon" aria-hidden="true">&#8682;</div>
       <strong>Drop your data package here</strong>
-      <span class="hint">The .zip we sent you. Tracking, events, stats, phases and runs are found automatically.</span>
+      <span class="hint">The .zip we sent you. Tracking, events, stats, phases, runs and shapes are found automatically.</span>
       <label class="drop-btn">Choose .zip file<input type="file" id="f-package" accept=".zip,.gz,.tgz,.tar"></label>
     </div>
     <div id="pkg-result" hidden></div>
@@ -54,6 +54,7 @@
       <label class="file">Match stats (matchstats)<input type="file" id="f-stats" accept=".json"></label>
       <label class="file">Phases of play (remotephasesofplay)<input type="file" id="f-phases" accept=".json"></label>
       <label class="file">Player runs (remoteplayerruns)<input type="file" id="f-runs" accept=".json"></label>
+      <label class="file">Shapes (remoteshape)<input type="file" id="f-shapes" accept=".json"></label>
     </details>
     <button type="button" id="load-btn" class="primary" disabled>Load data</button>
   </section>

@@ -975,6 +975,9 @@ let   showPressures      = false;   // Tabular info: pressures table
 let   showPressureHighlights = false; // Visual only: pressure highlights on the pitch
 const _hasPressures      = D.pressures && D.pressures.length > 0;
 let   showDefCompactness  = false;
+const shapesPanelEl = document.getElementById('shapes-panel');
+const _hasShapes = !!(D.shapes && (D.shapes[1] || D.shapes[2]));   // optional remoteshape feed
+let   showShapes = false;
 let   showPhaseOverlay    = false;
 let   showOverloadOverlay = false;
 let   showRunInfo         = false;
@@ -1028,17 +1031,18 @@ for (const [id, pref] of [['dock-side', 'side'], ['dock-below', 'below']]) {
 
 function _setRightCol() {
   const needRight = hasVod || dockSide || (showPhases && _hasPhases) || (showRuns && _hasRuns) ||
-                    (showPressures && _hasPressures) || (showDefCompactness && _hasPhases);
+                    (showPressures && _hasPressures) || (showDefCompactness && _hasPhases) || (showShapes && _hasShapes);
   rightColEl.classList.toggle('active', needRight);
   phasesPanelEl.classList.toggle('active',   showPhases        && _hasPhases);
   runsPanelEl.classList.toggle('active',     showRuns          && _hasRuns);
   pressurePanelEl.classList.toggle('active', showPressures     && _hasPressures);
   dcPanelEl.classList.toggle('active',       showDefCompactness && _hasPhases);
+  shapesPanelEl.classList.toggle('active',   showShapes         && _hasShapes);
 }
 
 function _hidePhasePanel() {
   phasesPanelEl.classList.remove('active');
-  const others = hasVod || dockSide || (showRuns && _hasRuns) || (showPressures && _hasPressures) || (showDefCompactness && _hasPhases);
+  const others = hasVod || dockSide || (showRuns && _hasRuns) || (showPressures && _hasPressures) || (showDefCompactness && _hasPhases) || (showShapes && _hasShapes);
   if (!others) rightColEl.classList.remove('active');
 }
 
@@ -1272,6 +1276,23 @@ function findHoveredEntity(cx, cy) {
   return closest;
 }
 
+// ── Hover card counts: passes, shots and goals this player has had so far, straight from the events feed ──
+const _SHOT_TYPES = new Set(['shot_off_target', 'shot_post', 'shot_saved', 'shot_blocked', 'goal']);
+const _evIndex = {};
+function _playerCounts(g, j, fi) {
+  const key = g + ':' + j;
+  if (!_evIndex[key]) _evIndex[key] = (D.events || []).filter(e => e.g === g && e.jn === j && e.ti !== null && e.ti !== undefined);
+  let passes = 0, shots = 0, goals = 0;
+  for (const e of _evIndex[key]) {                              // events are sorted by frame
+    if (e.fi > fi) break;
+    if (e.t === 'pass') passes++;
+    if (e.t === 'goal' && (e.quals || []).some(q => q.id === 28)) continue;   // own goal (qualifier 28): neither a shot nor a goal for this player
+    if (_SHOT_TYPES.has(e.t)) shots++;
+    if (e.t === 'goal') goals++;
+  }
+  return { passes, shots, goals };
+}
+
 function renderTooltip(entity, cx, cy) {
   if (!entity) {
     tooltipEl.classList.remove('visible');
@@ -1286,8 +1307,12 @@ function renderTooltip(entity, cx, cy) {
   const run = ((D.runs && D.runs[period]) || [])
     .find(r => r.g === entity.g && r.j === entity.j && r.s <= t && r.e >= t);
 
-  let html = '<div class="tt-name">' + name + '</div>';
+  let html = '<div class="tt-head">' + _disc(entity.g, entity.j) + '<div><div class="tt-name">' + _esc(name) + '</div><div class="tt-team">' + _esc(_teamName(entity.g)) + (_shapeRoleFor(entity.g, entity.j, currentFi) ? ' \u00B7 ' + _esc(_shapeRoleFor(entity.g, entity.j, currentFi)) : '') + '</div></div></div>';
+  const ct = _playerCounts(entity.g, entity.j, currentFi);
+  html += [['Passes', ct.passes], ['Shots', ct.shots], ['Goals', ct.goals]]
+    .map(([l, n]) => '<div class="tt-row"><span class="tt-lbl">' + l + ':</span><span class="tt-val">' + n + '</span></div>').join('');
   if (run) {
+    html += '<div class="tt-sep"></div>';
     if (run.label) html += '<div class="tt-row"><span class="tt-lbl">Label:</span><span class="tt-val">' + formatRunLabel(run.label) + '</span></div>';
     if (run.type)  html += '<div class="tt-row"><span class="tt-lbl">Type:</span><span class="tt-val">'  + formatRunType(run.type)   + '</span></div>';
   }
@@ -1666,6 +1691,174 @@ if (_hasPhases) {
     render(currentFi);
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Shapes (optional remoteshape feed): the "Shape analysis" window in the sidebar
+//  Segments of a team's in / out of possession shape, each with its roles at their average position and the
+//  feed's own statistics. Nothing is calculated here.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _SH_PALETTE = ['#e6c8ef', '#9fb4ff', '#ffd7bf', '#c6dcff', '#f7c7b0', '#d9c8ff', '#ffe3a8'];
+const _shFormationCol = f => { let h = 0; for (const ch of String(f)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return _SH_PALETTE[h % _SH_PALETTE.length]; };
+const _SH_STATS = {
+  ip:  [['goals', 'Goals'], ['attempts', 'Attempts'], ['xG', 'xG'], ['openPlayCross', 'Open play crosses'], ['touches', 'Touches'], ['passes', 'Passes'],
+        ['lbp', 'Line-breaking passes'], ['midfieldLbp', 'Midfield line-breaking passes'], ['defensiveLbp', 'Defensive line-breaking passes'], ['xT', 'xT']],
+  oop: [['goals', 'Goals conceded'], ['attempts', 'Attempts conceded'], ['xG', 'xG conceded'], ['openPlayCross', 'Open play crosses conceded'], ['touches', 'Touches conceded'],
+        ['passes', 'Passes conceded'], ['lbp', 'Line-breaking passes conceded'], ['midfieldLbp', 'Midfield line-breaking conceded'], ['defensiveLbp', 'Defensive line-breaking conceded'], ['xT', 'xT conceded']],
+};
+let shapesTeam = 0, shapesPhase = 'ip', shapesPinned = null, _shapesKey = '';
+const _shEl = id => document.getElementById(id);
+
+/** Index of the segment of ``side`` that contains this period time, or -1 (the feed has gaps). */
+function _shapeSegAt(g, side, p, t) {
+  const list = (D.shapes && D.shapes[g] && D.shapes[g][side]) || [];
+  return list.findIndex(s => s.p === p && s.s <= t && t < s.e);
+}
+/** Team in possession at this frame (0 when unknown). */
+function _possessionTeam(fi) {
+  for (const src of D.sources) {
+    if (!visibleSources.has(src.id) || !src.possession || !src.possession[fi]) continue;
+    return src.possession[fi].g || 0;
+  }
+  return 0;
+}
+/** A player's role label now, for the hover card: the shape of the phase his team is in, else the other one. */
+function _shapeRoleFor(g, j, fi) {
+  if (!_hasShapes || !D.shapes[g]) return '';
+  const p = D.meta.period[fi], t = D.meta.time[fi], poss = _possessionTeam(fi);
+  const order = poss && poss !== g ? ['oop', 'ip'] : ['ip', 'oop'];
+  for (const side of order) {
+    const i = _shapeSegAt(g, side, p, t);
+    if (i < 0) continue;
+    const r = D.shapes[g][side][i].r.find(x => x.j === j);
+    if (r && r.r) return r.r;
+  }
+  return '';
+}
+
+function _shapePitchSVG(g, seg) {
+  const W = 105, H = 68, m = 3, c1 = _teamCol(g), c2 = teamColour2(g);
+  const l1 = isLightColour(c1), l2 = c2 ? isLightColour(c2) : l1;
+  const ink = l1 !== l2 ? '#ffffff' : (l1 ? '#000000' : '#ffffff');
+  const outline = (l1 && l2) ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.55)';
+  const ln = 'stroke="rgba(255,255,255,.75)" stroke-width=".35" fill="none"';
+  let s = '<svg viewBox="' + (-m) + ' ' + (-m) + ' ' + (W + 2 * m) + ' ' + (H + 2 * m) + '" role="img" aria-label="Average role positions">' +
+    '<defs><linearGradient id="shk"><stop offset="50%" stop-color="' + c1 + '"/><stop offset="50%" stop-color="' + (c2 || c1) + '"/></linearGradient>' +
+    '<radialGradient id="shs"><stop offset="55%" stop-color="rgba(0,0,0,0)"/><stop offset="100%" stop-color="rgba(0,0,0,.22)"/></radialGradient></defs>' +
+    '<rect x="' + (-m) + '" y="' + (-m) + '" width="' + (W + 2 * m) + '" height="' + (H + 2 * m) + '" fill="#22633a"/>';
+  for (let i = 0; i < 10; i += 2) s += '<rect x="' + (i * W / 10) + '" y="0" width="' + (W / 10) + '" height="' + H + '" fill="rgba(255,255,255,.035)"/>';
+  s += '<rect width="' + W + '" height="' + H + '" ' + ln + '/><line x1="' + W / 2 + '" y1="0" x2="' + W / 2 + '" y2="' + H + '" ' + ln + '/><circle cx="' + W / 2 + '" cy="' + H / 2 + '" r="9.15" ' + ln + '/><circle cx="' + W / 2 + '" cy="' + H / 2 + '" r=".5" fill="rgba(255,255,255,.75)"/>' +
+    '<circle cx="11" cy="' + H / 2 + '" r=".5" fill="rgba(255,255,255,.75)"/><circle cx="' + (W - 11) + '" cy="' + H / 2 + '" r=".5" fill="rgba(255,255,255,.75)"/>' +
+    '<path d="M16.5 ' + (H / 2 - 7.31) + ' A9.15 9.15 0 0 1 16.5 ' + (H / 2 + 7.31) + '" ' + ln + '/><path d="M' + (W - 16.5) + ' ' + (H / 2 - 7.31) + ' A9.15 9.15 0 0 0 ' + (W - 16.5) + ' ' + (H / 2 + 7.31) + '" ' + ln + '/>' +
+    '<path d="M0 1 A1 1 0 0 0 1 0 M' + (W - 1) + ' 0 A1 1 0 0 0 ' + W + ' 1 M0 ' + (H - 1) + ' A1 1 0 0 1 1 ' + H + ' M' + (W - 1) + ' ' + H + ' A1 1 0 0 1 ' + W + ' ' + (H - 1) + '" ' + ln + '/>' +
+    '<rect y="' + (H / 2 - 20.16) + '" width="16.5" height="40.32" ' + ln + '/><rect x="' + (W - 16.5) + '" y="' + (H / 2 - 20.16) + '" width="16.5" height="40.32" ' + ln + '/>' +
+    '<rect y="' + (H / 2 - 9.16) + '" width="5.5" height="18.32" ' + ln + '/><rect x="' + (W - 5.5) + '" y="' + (H / 2 - 9.16) + '" width="5.5" height="18.32" ' + ln + '/>' +
+    '<text x="' + W / 2 + '" y="' + (H + 2.3) + '" font-size="2" fill="rgba(255,255,255,.7)" text-anchor="middle" font-family="DM Mono, monospace" letter-spacing=".35">ATTACKING DIRECTION ▸▸▸</text>';
+  for (const r of seg.r) {   // x: 0 own goal .. 100 opposition goal; y: 100 is the attacking team's left (top of the picture)
+    const X = r.x / 100 * W, Y = (100 - r.y) / 100 * H;
+    s += '<g class="sh-p"><circle cx="' + X + '" cy="' + Y + '" r="3.4" fill="url(#shk)" stroke="' + outline + '" stroke-width=".35"/><circle cx="' + X + '" cy="' + Y + '" r="3.4" fill="url(#shs)"/>' +
+      '<text x="' + X + '" y="' + (Y + 1.35) + '" font-size="3.8" font-weight="700" text-anchor="middle" fill="' + ink + '"' +
+      (l1 !== l2 ? ' stroke="rgba(0,0,0,.85)" stroke-width=".7" paint-order="stroke"' : '') + ' font-family="Roboto, Arial, sans-serif">' + _esc(r.j) + '</text>' +
+      '<g class="sh-role"><rect x="' + (X - 5.5) + '" y="' + (Y + 3.9) + '" width="11" height="3.6" rx="1.8" fill="rgba(20,6,31,.9)"/><text x="' + X + '" y="' + (Y + 6.5) + '" font-size="2.5" text-anchor="middle" fill="#fff" font-family="DM Mono, monospace">' + _esc(r.r) + '</text></g></g>';
+  }
+  return s + '</svg>';
+}
+
+function _shapeTimeline(g, side, selIdx) {
+  const list = D.shapes[g][side];
+  const len = {};
+  for (const gg of [1, 2]) for (const sd of ['ip', 'oop']) for (const s of ((D.shapes[gg] || {})[sd] || [])) len[s.p] = Math.max(len[s.p] || 0, s.e);
+  const l1 = len[1] || 2700, l2 = len[2] || 2700, tot = l1 + l2;
+  const abs = (p, t) => (p === 1 ? t : l1 + t);
+  let h = '', prev = 0;
+  list.forEach((s, i) => {
+    const a = abs(s.p, s.s), e = abs(s.p, s.e);
+    if (a > prev + 1) h += '<div class="gap" style="flex:' + (a - prev) + '"></div>';
+    h += '<button type="button" class="' + (i === selIdx ? 'sel' : '') + '" data-i="' + i + '" style="flex:' + (e - a) + ';background:' + _shFormationCol(s.f) + '" title="' + _esc(s.l) + ' · P' + s.p + ' ' + _clock(s.p, s.s) + '–' + _clock(s.p, s.e) + '">' + ((e - a) / tot > .07 ? _esc(s.f) : '') + '</button>';
+    prev = Math.max(prev, e);
+  });
+  if (prev < tot) h += '<div class="gap" style="flex:' + (tot - prev) + '"></div>';
+  h += '<span class="now" id="shapes-now-mark"></span>';
+  const tick = (sec, label) => '<span style="left:' + sec / tot * 100 + '%">' + label + '</span>';
+  const axis = tick(0, "0'") + tick(900, "15'") + tick(1800, "30'") + tick(2700, "45'") + tick(l1 + 900, "60'") + tick(l1 + 1800, "75'") + tick(l1 + 2700, "90'");
+  return { html: h, axis, tot, abs };
+}
+const _PERIOD_OFFSET = { 1: 0, 2: 2700, 3: 5400, 4: 6300 };   // match clock: period 2 starts at 45:00
+const _clock = (p, s) => _mmss(s + (_PERIOD_OFFSET[p] || 0));
+const _mmss = s => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+
+function updateShapesPanel(fi) {
+  if (!showShapes || !_hasShapes) return;
+  const p = D.meta.period[fi], t = D.meta.time[fi];
+  if (!shapesTeam) shapesTeam = _possessionTeam(fi) || (D.shapes[1] ? 1 : 2);
+  const g = shapesTeam, side = shapesPhase;
+  const list = (D.shapes[g] && D.shapes[g][side]) || [];
+  const liveIdx = _shapeSegAt(g, side, p, t);
+  const idx = shapesPinned !== null && shapesPinned < list.length ? shapesPinned : liveIdx;
+  _shEl('shapes-now').textContent = 'P' + p + ' ' + _clock(p, t);
+  const key = [g, side, idx, shapesPinned, _teamCol(g), teamColour2(g) || '', list.length].join('|');
+  if (key !== _shapesKey) {
+    _shapesKey = key;
+    for (const b of _shEl('shapes-phase').children) b.classList.toggle('on', b.dataset.p === side);
+    for (const b of _shEl('shapes-team').children) {
+      const bg = Number(b.dataset.g);
+      b.classList.toggle('on', bg === g);
+      b.hidden = !D.shapes[bg];
+      b.innerHTML = _disc(bg, '').replace('class="dsc"', 'class="dsc dot"') + _esc(_teamName(bg));
+    }
+    const seg = idx >= 0 ? list[idx] : null;
+    _shEl('shapes-chip').innerHTML = seg ? _esc(seg.l || seg.f) + (seg.l && seg.f ? '<small>' + _esc(seg.f) + '</small>' : '') : '<span class="none">No shape for this moment</span>';
+    _shEl('shapes-range').textContent = seg ? 'P' + seg.p + ' ' + _clock(seg.p, seg.s) + '–' + _clock(seg.p, seg.e) : '';
+    _shEl('shapes-pitch').innerHTML = seg ? _shapePitchSVG(g, seg) : '<div class="empt">The feed has no ' + (side === 'ip' ? 'in' : 'out of') + ' possession shape for ' + _esc(_teamName(g)) + ' at this moment. Pick a segment below.</div>';
+    const tl = _shapeTimeline(g, side, idx);
+    _shEl('shapes-tl').innerHTML = tl.html; _shEl('shapes-axis').innerHTML = tl.axis;
+    _shEl('shapes-follow').hidden = shapesPinned === null;
+    _shEl('shapes-stat-h').textContent = side === 'ip' ? 'In possession statistics' : 'Out of possession statistics';
+    const rows = seg ? _SH_STATS[side].filter(([k]) => seg.o[k] !== undefined).map(([k, lbl]) => {
+      let v = seg.o[k];
+      if (k === 'passes' && side === 'ip' && seg.o.successfulPasses !== undefined) v = seg.o.successfulPasses + ' / ' + v;
+      else if (k === 'xG' || k === 'xT') v = Number(v).toFixed(2);
+      return '<tr><td>' + lbl + (k === 'passes' && side === 'ip' && seg.o.successfulPasses !== undefined ? ' (successful / total)' : '') + '</td><td>' + _esc(v) + '</td></tr>';
+    }) : [];
+    _shEl('shapes-stats').innerHTML = rows.join('') || '<tr><td colspan="2" class="empt-row">No statistics for this segment</td></tr>';
+  }
+  const tot = [1, 2].reduce((a, gg) => a, 0);   // timeline width is rebuilt with the key; the marker follows playback
+  const mark = _shEl('shapes-now-mark');
+  if (mark) {
+    const len = {};
+    for (const gg of [1, 2]) for (const sd of ['ip', 'oop']) for (const s of ((D.shapes[gg] || {})[sd] || [])) len[s.p] = Math.max(len[s.p] || 0, s.e);
+    const l1 = len[1] || 2700, l2 = len[2] || 2700;
+    mark.style.left = ((p === 1 ? t : l1 + t) / (l1 + l2) * 100) + '%';
+  }
+}
+(function () {
+  if (!_hasShapes) return;
+  const btn = document.getElementById('btn-shapes');
+  btn.style.display = '';
+  btn.addEventListener('click', () => {
+    showShapes = !showShapes;
+    btn.classList.toggle('btn-primary',   showShapes);
+    btn.classList.toggle('btn-secondary', !showShapes);
+    _shapesKey = '';
+    _setRightCol();
+    render(currentFi);
+  });
+  _shEl('shapes-phase').addEventListener('click', ev => {
+    const b = ev.target.closest('button[data-p]'); if (!b) return;
+    shapesPhase = b.dataset.p; shapesPinned = null; _shapesKey = ''; render(currentFi);
+  });
+  _shEl('shapes-team').addEventListener('click', ev => {
+    const b = ev.target.closest('button[data-g]'); if (!b) return;
+    shapesTeam = Number(b.dataset.g); shapesPinned = null; _shapesKey = ''; render(currentFi);
+  });
+  _shEl('shapes-tl').addEventListener('click', ev => {
+    const b = ev.target.closest('button[data-i]'); if (!b) return;
+    const list = D.shapes[shapesTeam][shapesPhase], i = Number(b.dataset.i), s = list[i];
+    shapesPinned = i; _shapesKey = '';
+    render(currentFi);
+  });
+  _shEl('shapes-follow').addEventListener('click', () => { shapesPinned = null; _shapesKey = ''; render(currentFi); });
+})();
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Phase overlay — label + attack-direction arrow on the pitch
@@ -3194,6 +3387,7 @@ function render(fi) {
   updateRunsPanel(fi);
   updatePressurePanel(fi);
   updateDCPanel(fi);
+  updateShapesPanel(fi);
   updateMeta(fi);
   slider.value = fi;
   slider.style.setProperty('--p', (slider.max > 0 ? fi / slider.max * 100 : 0) + '%');   // played part of the track
@@ -3457,6 +3651,92 @@ slider.max   = TOTAL_FRAMES - 1;
 slider.value = 0;
 slider.style.setProperty('--p', '0%');
 slider.addEventListener('input', () => { stopPlayback(); render(parseInt(slider.value, 10)); });
+
+// ── Key events on the play bar: goals, own goals and cards (home above the track, away below) ─────────
+// Close together markers merge into one icon with a count; hover lists them, click jumps to the first.
+const seekEvEl = document.getElementById('seek-ev');
+const seekTipEl = document.createElement('div');
+seekTipEl.id = 'seek-tip';
+document.body.appendChild(seekTipEl);
+const _SEEK_RANK = { goal: 5, og: 4, red: 3, second: 2, yellow: 1 };
+const _SEEK_NAME = { goal: 'Goal', og: 'Own goal', red: 'Red card', second: 'Second yellow', yellow: 'Yellow card' };
+const _seekItems = (D.events || []).filter(e => (e.t === 'goal' || e.t === 'card') && (e.ti === 0 || e.ti === 1)).map(e => {
+  const ids = (e.quals || []).map(q => q.id);
+  const kind = e.t === 'goal' ? (ids.includes(28) ? 'og' : 'goal') : ids.includes(33) ? 'red' : ids.includes(32) ? 'second' : 'yellow';
+  // Own goals go to the side that benefited (the same reading as the score ticker); everything else sits with the player's team.
+  const row = e.t === 'goal' ? ((scoreboardGoals.find(s => s.fi === e.fi && s.own === ids.includes(28)) || { scorer: e.ti }).scorer) : e.ti;
+  return { fi: e.fi, row, kind, e };
+}).sort((a, b) => a.fi - b.fi);
+function _seekIcon(kind) {
+  if (kind === 'goal') return '<img alt="" src="../data/ball.svg">';
+  if (kind === 'og') return '<img alt="" src="../data/ball-owngoal.svg">';
+  if (kind === 'second') return '<span class="sk-card y"></span><span class="sk-card r sk-2nd"></span>';
+  return '<span class="sk-card ' + (kind === 'red' ? 'r' : 'y') + '"></span>';
+}
+function buildSeekMarkers() {
+  if (!seekEvEl) return;
+  const W = slider.clientWidth, max = Math.max(1, Number(slider.max) || 1), pad = 7, gap = 14;
+  let html = '';
+  if (W > 0) for (const row of [0, 1]) {
+    const items = _seekItems.filter(it => it.row === row);
+    const xOf = it => pad + (W - 2 * pad) * it.fi / max;
+    for (let i = 0; i < items.length;) {
+      let k = i + 1;
+      while (k < items.length && xOf(items[k]) - xOf(items[i]) < gap) k++;
+      const grp = items.slice(i, k);
+      const top = grp.reduce((a, b) => (_SEEK_RANK[b.kind] > _SEEK_RANK[a.kind] ? b : a));
+      const x = (xOf(grp[0]) + xOf(grp[grp.length - 1])) / 2;
+      html += '<button type="button" class="sk ' + (row ? 'sk-a' : 'sk-h') + '" style="left:' + x.toFixed(1) + 'px" data-i="' + _seekItems.indexOf(grp[0]) + '" data-n="' + grp.length + '">' +
+        _seekIcon(top.kind) + (grp.length > 1 ? '<em>' + grp.length + '</em>' : '') + '</button>';
+      i = k;
+    }
+  }
+  seekEvEl.innerHTML = html;
+}
+function _seekTipHtml(first, n) {
+  let h = '';
+  for (let q = first; q < first + n; q++) {
+    const it = _seekItems[q];
+    h += '<div class="sk-l"><span class="sk-i">' + _seekIcon(it.kind) + '</span><b>' + _esc(matchMinuteAt(it.fi)) + "' " + _SEEK_NAME[it.kind] + '</b><small>' +
+      _esc(eventPlayerName(it.e) || '') + ' · ' + _esc(it.e.ti === 0 ? (D.lineup['teamname_1'] || 'Home') : (D.lineup['teamname_2'] || 'Away')) + '</small></div>';
+  }
+  return h;
+}
+// Team column left of the bar: kit-colour disc and team code, aligned with the home (top) and away (bottom) icon rows
+const seekTeams = document.createElement('div');
+seekTeams.id = 'seek-teams';
+seekTeams.innerHTML = [1, 2].map(g => '<span class="st ' + (g === 1 ? 'st-h' : 'st-a') + '"><i></i>' + _esc(teamCode(g)) + '</span>').join('');
+seekEvEl.parentElement.insertBefore(seekTeams, seekEvEl.parentElement.firstChild);
+function paintSeekTeams() {
+  [...seekTeams.children].forEach((el, i) => {
+    const g = i + 1, c1 = _teamCol(g), c2 = teamColour2(g) || c1;
+    el.firstChild.style.background = 'linear-gradient(90deg,' + c1 + ' 50%,' + c2 + ' 50%)';
+    el.title = _teamName(g);
+  });
+}
+paintSeekTeams();
+document.addEventListener('kitchange', paintSeekTeams);
+if (seekEvEl) {
+  const markerAt = ev => ev.target.closest('button.sk');
+  seekEvEl.addEventListener('click', ev => {
+    const b = markerAt(ev); if (!b) return;
+    stopPlayback(); render(_seekItems[Number(b.dataset.i)].fi);
+  });
+  const showTip = b => {
+    const r = b.getBoundingClientRect();
+    seekTipEl.innerHTML = _seekTipHtml(Number(b.dataset.i), Number(b.dataset.n));
+    seekTipEl.classList.add('visible');
+    const w = seekTipEl.offsetWidth;
+    seekTipEl.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + 'px';
+    seekTipEl.style.top = Math.max(4, r.top - seekTipEl.offsetHeight - 8) + 'px';
+  };
+  seekEvEl.addEventListener('mouseover', ev => { const b = markerAt(ev); if (b) showTip(b); });
+  seekEvEl.addEventListener('mouseout', ev => { if (markerAt(ev)) seekTipEl.classList.remove('visible'); });
+  seekEvEl.addEventListener('focusin', ev => { const b = markerAt(ev); if (b) showTip(b); });
+  seekEvEl.addEventListener('focusout', () => seekTipEl.classList.remove('visible'));
+  buildSeekMarkers();
+  if (window.ResizeObserver) new ResizeObserver(buildSeekMarkers).observe(slider); else window.addEventListener('resize', buildSeekMarkers);
+}
 
 btnPlay.addEventListener('click', togglePlay);
 

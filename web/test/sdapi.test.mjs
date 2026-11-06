@@ -72,7 +72,7 @@ const states = (r) => Object.fromEntries(r.statuses.map((s) => [s.label, s.state
 
 test('optional feed failures do not block; tracking failure blocks everything', async () => {
   const ok = await fetchMatch(fakeClient({ failFeed: 'matchstats' }), GAME, { events: true, matchstats: true }, null, false);
-  assert.deepEqual(states(ok), { 'EPTS tracking': 'ok', Events: 'ok', 'Lineup and kit colours': 'failed', 'Phases of play': 'skipped', 'Player runs': 'skipped' });
+  assert.deepEqual(states(ok), { 'EPTS tracking': 'ok', Events: 'ok', 'Lineup and kit colours': 'failed', 'Phases of play': 'skipped', 'Player runs': 'skipped', 'Team shapes': 'skipped' });
   assert.ok(ok.files.raw && ok.files.events && !ok.files.matchstats);
   const down = await fetchMatch(fakeClient({ eptsFails: true }), GAME, { events: true }, null, false);
   assert.equal(down.files, null);

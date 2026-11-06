@@ -91,3 +91,19 @@ test('ball z offset is the 10th percentile of valid (>= 0) values', () => {
   // linear interpolation between neighbours: n=4, position 0.3 between 0 and 1
   assert.ok(Math.abs(ballZOffset([0, 1, 2, 3]) - 0.3) < 1e-9);
 });
+
+test('shapes feed: only the shapeHistory node is read, positions are the centred ones, strings are made safe', async () => {
+  const { payload } = await buildMatchPayload(inputs({ shapes: new Uint8Array(fixture('shape.json')) }), options());
+  assert.deepEqual(Object.keys(payload.shapes).sort(), ['1', '2']);                 // contestants mapped to groups 1 and 2
+  const home = payload.shapes[1];
+  assert.equal(home.ip.length, 3);                                                   // 3 in-possession segments (the decoy "shapes" node is ignored)
+  assert.equal(home.oop.length, 2);
+  const seg = home.ip[0];
+  assert.deepEqual([seg.p, seg.s, seg.e, seg.f], [1, 0, 600, '4-4-2']);
+  assert.equal(seg.l, '4-4-2 ‹b›Test‹/b›');                                          // < and > neutralised
+  assert.deepEqual(seg.r[0], { j: 1, r: 'CB.L', x: 30, y: 60 });                     // averageRolePositionX/Y, not the NonCentered values (99)
+  assert.deepEqual(seg.o, { goals: 1, attempts: 3, openPlayCross: 2, touches: 50, lbp: 4, midfieldLbp: 2, defensiveLbp: 1, xT: 0.5, xG: 0.25, passes: 20, successfulPasses: 15 });
+  assert.deepEqual(home.oop[0].o, { goals: 0, attempts: 1, openPlayCross: 0, touches: 30, lbp: 3, midfieldLbp: 1, defensiveLbp: 0, xT: 0.1, xG: 0.05, passes: 12, successfulPasses: 9 });   // the ...Conceded fields
+  const { payload: without } = await buildMatchPayload(inputs(), options());
+  assert.equal('shapes' in without, false);                                           // the feed is optional
+});

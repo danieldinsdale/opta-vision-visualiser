@@ -77,7 +77,7 @@ async function api(req, res, url) {
     const body = await readJson(req);
     if (url.pathname === '/api/fetch') {
       const gameId = validateGameId(body.gameId);
-      const want = Object.fromEntries(['events', 'matchstats', 'phases', 'runs'].map((k) => [k, !!body.want?.[k]]));
+      const want = Object.fromEntries(['events', 'matchstats', 'phases', 'runs', 'shapes'].map((k) => [k, !!body.want?.[k]]));
       const useCache = !!body.useCache;
       // Key and referral are optional: without a key only cached files can be served.
       const client = body.apiKey ? new SdapiClient(validateApiKey(body.apiKey), checkReferer(body.referral)) : null;
