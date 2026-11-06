@@ -10,6 +10,47 @@ const gj = (value) => {
   return parts.length === 2 && parts.every(Number.isInteger) ? parts : [0, 0];
 };
 
+const SHAPE_STATS = ['goals', 'attempts', 'openPlayCross', 'touches', 'lbp', 'midfieldLbp', 'defensiveLbp', 'xT', 'xG', 'passes', 'successfulPasses'];
+
+/**
+ * ``remoteshape`` feed -> {<group>: {ip: [segment], oop: [segment]}} from the ``shapeHistory`` node only
+ * (the segments of a team's in- and out-of-possession shape). A segment is
+ * {p, s, e, l, f, o, r}: period, start and end (seconds into the period), shape label, formation, the feed's own
+ * statistics for the segment (out of possession these are the ``...Conceded`` fields, keyed without the suffix)
+ * and the roles [{j: shirt number, r: role description, x, y}] at the average role position
+ * (``averageRolePositionX/Y``, 0-100 in the team's attacking direction). Nothing is calculated.
+ */
+export function buildShapes(lineup, feed) {
+  const list = (feed && feed.liveData && feed.liveData.shapeHistory && feed.liveData.shapeHistory.contestant) || (Array.isArray(feed) ? feed : []);
+  const map = lineup || {};
+  const n = (v) => { const x = Number(v); return v === '' || v === null || v === undefined || !Number.isFinite(x) ? null : x; };
+  const out = {};
+  for (const c of list) {
+    const g = num(map[`ctg_${(c && c.id) ?? ''}`], 0);
+    if (g !== 1 && g !== 2) continue;
+    const sides = {};
+    for (const [key, short, suffix] of [['inPossession', 'ip', ''], ['outOfPossession', 'oop', 'Conceded']]) {
+      const segs = [];
+      for (const sh of ((c[key] || {}).shape || [])) {
+        const roles = (((sh.shapeRole || {}).role) || []).map((r) => ({ j: num(r.shirtNumber, -1), r: r.roleDescription ?? '', x: n(r.averageRolePositionX), y: n(r.averageRolePositionY) }))
+          .filter((r) => r.j >= 0 && r.x !== null && r.y !== null);
+        const pid = num(sh.periodId);
+        if (!pid || !roles.length) continue;
+        const o = {};
+        for (const k of SHAPE_STATS) {
+          const v = n((sh.shapeOutcome || {})[k + suffix]);
+          if (v !== null) o[k] = Math.round(v * 1000) / 1000;
+        }
+        segs.push({ p: pid, s: num(sh.periodStart), e: num(sh.periodEnd), l: String(sh.label ?? '').trim(), f: sh.formation ?? '', o, r: roles });
+      }
+      segs.sort((a, b) => a.p - b.p || a.s - b.s);
+      sides[short] = segs;
+    }
+    out[g] = sides;
+  }
+  return out;
+}
+
 /** Returns ``{phasesByPeriod, runsByPeriod, pressures}``. */
 export function buildContextPanels(lineup, phases, runs, pressures) {
   const map = lineup || {};

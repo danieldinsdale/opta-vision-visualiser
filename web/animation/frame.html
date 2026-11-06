@@ -48,6 +48,17 @@
         <div class="pn-h"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/></svg><span class="pn-t">Def. compactness</span><span class="live" id="dc-team"></span></div>
         <div class="pbar"><span id="dc-label-val" class="pbar-l"></span><div class="track"><i id="dc-bar"></i></div><span class="mono"><span id="dc-adc-val"></span> m&sup2;</span></div>
       </div>
+      <div id="shapes-panel" class="pn">
+        <div class="pn-h"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="12" cy="12" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="18" r="2.2"/></svg><span class="pn-t">Shape analysis</span><span class="live"><i></i><span id="shapes-now"></span></span></div>
+        <div id="shapes-phase" class="sh-tabs"><button type="button" data-p="ip" class="on">In possession</button><button type="button" data-p="oop">Out of possession</button></div>
+        <div id="shapes-team" class="sh-team"><button type="button" data-g="1"></button><button type="button" data-g="2"></button></div>
+        <div class="sh-meta"><span class="sh-chip" id="shapes-chip"></span><span id="shapes-range"></span></div>
+        <div id="shapes-pitch"></div>
+        <div class="sh-hint"><span>Select a segment to view the team's shape and statistics</span><button type="button" id="shapes-follow" hidden>Follow playback</button></div>
+        <div id="shapes-tl" class="sh-tl"></div><div id="shapes-axis" class="sh-ax"></div>
+        <h4 id="shapes-stat-h" class="sh-sh"></h4>
+        <table class="mt sh-stats"><tbody id="shapes-stats"></tbody></table>
+      </div>
       <div id="video-wrap">
         <video id="vod-video-1" playsinline preload="auto" muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000"></video>
         <video id="vod-video-2" playsinline preload="auto" muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;display:none"></video>
@@ -108,6 +119,7 @@
         <button class="btn btn-primary" id="btn-phases" style="padding:3px 10px;font-size:13px;display:none"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg> Phases</button>
         <button class="btn btn-primary" id="btn-runs" style="padding:3px 10px;font-size:13px;display:none"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3L5 14h6l-1 7 8-11h-6l1-7z"/></svg> Runs</button>
         <button class="btn btn-secondary" id="btn-pressures" style="padding:3px 10px;font-size:13px;display:none"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg> Pressures</button>
+        <button class="btn btn-secondary" id="btn-shapes" style="padding:3px 10px;font-size:13px;display:none"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="12" cy="12" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="18" r="2.2"/></svg> Shapes</button>
         <button class="btn btn-secondary" id="btn-def-compactness" style="padding:3px 10px;font-size:13px;display:none"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/></svg> Def Compactness</button>
       </div>
 

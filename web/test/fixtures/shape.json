@@ -1,0 +1,747 @@
+{
+ "matchInfo": {
+  "id": "synthetic"
+ },
+ "liveData": {
+  "shapes": [
+   {
+    "decoy": "must not be read"
+   }
+  ],
+  "shapeHistory": {
+   "contestant": [
+    {
+     "id": "teamhome000000000000000001",
+     "inPossession": {
+      "shape": [
+       {
+        "labelId": "x",
+        "label": "4-4-2 <b>Test</b>",
+        "formation": "4-4-2",
+        "fitScore": "5.0",
+        "periodId": "1",
+        "periodStart": "0",
+        "periodEnd": "600",
+        "shapeRole": {
+         "role": [
+          {
+           "id": "x_CB.L",
+           "roleDescription": "CB.L",
+           "playerId": "hplayer1",
+           "shirtNumber": "1",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "60",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CB.R",
+           "roleDescription": "CB.R",
+           "playerId": "hplayer2",
+           "shirtNumber": "2",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "40",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CM",
+           "roleDescription": "CM",
+           "playerId": "hplayer3",
+           "shirtNumber": "3",
+           "fitScore": "1.0",
+           "averageRolePositionX": "50",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_F",
+           "roleDescription": "F",
+           "playerId": "hplayer4",
+           "shirtNumber": "4",
+           "fitScore": "1.0",
+           "averageRolePositionX": "70",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          }
+         ]
+        },
+        "shapeOutcome": {
+         "goals": "1",
+         "attempts": "3",
+         "openPlayCross": "2",
+         "touches": "50",
+         "lbp": "4",
+         "midfieldLbp": "2",
+         "defensiveLbp": "1",
+         "xT": "0.5",
+         "xG": "0.25",
+         "passes": "20",
+         "successfulPasses": "15",
+         "xTPer100SuccessfulPasses": "9"
+        }
+       },
+       {
+        "labelId": "x",
+        "label": "3-5-2",
+        "formation": "3-5-2",
+        "fitScore": "5.0",
+        "periodId": "1",
+        "periodStart": "600",
+        "periodEnd": "1200",
+        "shapeRole": {
+         "role": [
+          {
+           "id": "x_CB.L",
+           "roleDescription": "CB.L",
+           "playerId": "hplayer1",
+           "shirtNumber": "1",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "60",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CB.R",
+           "roleDescription": "CB.R",
+           "playerId": "hplayer2",
+           "shirtNumber": "2",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "40",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CM",
+           "roleDescription": "CM",
+           "playerId": "hplayer3",
+           "shirtNumber": "3",
+           "fitScore": "1.0",
+           "averageRolePositionX": "50",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_F",
+           "roleDescription": "F",
+           "playerId": "hplayer4",
+           "shirtNumber": "4",
+           "fitScore": "1.0",
+           "averageRolePositionX": "70",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          }
+         ]
+        },
+        "shapeOutcome": {
+         "goals": "1",
+         "attempts": "3",
+         "openPlayCross": "2",
+         "touches": "50",
+         "lbp": "4",
+         "midfieldLbp": "2",
+         "defensiveLbp": "1",
+         "xT": "0.5",
+         "xG": "0.25",
+         "passes": "20",
+         "successfulPasses": "15",
+         "xTPer100SuccessfulPasses": "9"
+        }
+       },
+       {
+        "labelId": "x",
+        "label": "4-4-2",
+        "formation": "4-4-2",
+        "fitScore": "5.0",
+        "periodId": "2",
+        "periodStart": "0",
+        "periodEnd": "900",
+        "shapeRole": {
+         "role": [
+          {
+           "id": "x_CB.L",
+           "roleDescription": "CB.L",
+           "playerId": "hplayer1",
+           "shirtNumber": "1",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "60",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CB.R",
+           "roleDescription": "CB.R",
+           "playerId": "hplayer2",
+           "shirtNumber": "2",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "40",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CM",
+           "roleDescription": "CM",
+           "playerId": "hplayer3",
+           "shirtNumber": "3",
+           "fitScore": "1.0",
+           "averageRolePositionX": "50",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_F",
+           "roleDescription": "F",
+           "playerId": "hplayer4",
+           "shirtNumber": "4",
+           "fitScore": "1.0",
+           "averageRolePositionX": "70",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          }
+         ]
+        },
+        "shapeOutcome": {
+         "goals": "1",
+         "attempts": "3",
+         "openPlayCross": "2",
+         "touches": "50",
+         "lbp": "4",
+         "midfieldLbp": "2",
+         "defensiveLbp": "1",
+         "xT": "0.5",
+         "xG": "0.25",
+         "passes": "20",
+         "successfulPasses": "15",
+         "xTPer100SuccessfulPasses": "9"
+        }
+       }
+      ]
+     },
+     "outOfPossession": {
+      "shape": [
+       {
+        "labelId": "x",
+        "label": "4-5-1",
+        "formation": "4-5-1",
+        "fitScore": "5.0",
+        "periodId": "1",
+        "periodStart": "0",
+        "periodEnd": "1200",
+        "shapeRole": {
+         "role": [
+          {
+           "id": "x_CB.L",
+           "roleDescription": "CB.L",
+           "playerId": "hplayer1",
+           "shirtNumber": "1",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "60",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CB.R",
+           "roleDescription": "CB.R",
+           "playerId": "hplayer2",
+           "shirtNumber": "2",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "40",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CM",
+           "roleDescription": "CM",
+           "playerId": "hplayer3",
+           "shirtNumber": "3",
+           "fitScore": "1.0",
+           "averageRolePositionX": "50",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_F",
+           "roleDescription": "F",
+           "playerId": "hplayer4",
+           "shirtNumber": "4",
+           "fitScore": "1.0",
+           "averageRolePositionX": "70",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          }
+         ]
+        },
+        "shapeOutcome": {
+         "goalsConceded": "0",
+         "attemptsConceded": "1",
+         "openPlayCrossConceded": "0",
+         "touchesConceded": "30",
+         "lbpConceded": "3",
+         "midfieldLbpConceded": "1",
+         "defensiveLbpConceded": "0",
+         "xTConceded": "0.1",
+         "xGConceded": "0.05",
+         "passesConceded": "12",
+         "successfulPassesConceded": "9"
+        }
+       },
+       {
+        "labelId": "x",
+        "label": "4-5-1",
+        "formation": "4-5-1",
+        "fitScore": "5.0",
+        "periodId": "2",
+        "periodStart": "0",
+        "periodEnd": "900",
+        "shapeRole": {
+         "role": [
+          {
+           "id": "x_CB.L",
+           "roleDescription": "CB.L",
+           "playerId": "hplayer1",
+           "shirtNumber": "1",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "60",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CB.R",
+           "roleDescription": "CB.R",
+           "playerId": "hplayer2",
+           "shirtNumber": "2",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "40",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CM",
+           "roleDescription": "CM",
+           "playerId": "hplayer3",
+           "shirtNumber": "3",
+           "fitScore": "1.0",
+           "averageRolePositionX": "50",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_F",
+           "roleDescription": "F",
+           "playerId": "hplayer4",
+           "shirtNumber": "4",
+           "fitScore": "1.0",
+           "averageRolePositionX": "70",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          }
+         ]
+        },
+        "shapeOutcome": {
+         "goalsConceded": "0",
+         "attemptsConceded": "1",
+         "openPlayCrossConceded": "0",
+         "touchesConceded": "30",
+         "lbpConceded": "3",
+         "midfieldLbpConceded": "1",
+         "defensiveLbpConceded": "0",
+         "xTConceded": "0.1",
+         "xGConceded": "0.05",
+         "passesConceded": "12",
+         "successfulPassesConceded": "9"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "id": "teamaway000000000000000002",
+     "inPossession": {
+      "shape": [
+       {
+        "labelId": "x",
+        "label": "4-4-2 <b>Test</b>",
+        "formation": "4-4-2",
+        "fitScore": "5.0",
+        "periodId": "1",
+        "periodStart": "0",
+        "periodEnd": "600",
+        "shapeRole": {
+         "role": [
+          {
+           "id": "x_CB.L",
+           "roleDescription": "CB.L",
+           "playerId": "hplayer1",
+           "shirtNumber": "1",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "60",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CB.R",
+           "roleDescription": "CB.R",
+           "playerId": "hplayer2",
+           "shirtNumber": "2",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "40",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CM",
+           "roleDescription": "CM",
+           "playerId": "hplayer3",
+           "shirtNumber": "3",
+           "fitScore": "1.0",
+           "averageRolePositionX": "50",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_F",
+           "roleDescription": "F",
+           "playerId": "hplayer4",
+           "shirtNumber": "4",
+           "fitScore": "1.0",
+           "averageRolePositionX": "70",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          }
+         ]
+        },
+        "shapeOutcome": {
+         "goals": "1",
+         "attempts": "3",
+         "openPlayCross": "2",
+         "touches": "50",
+         "lbp": "4",
+         "midfieldLbp": "2",
+         "defensiveLbp": "1",
+         "xT": "0.5",
+         "xG": "0.25",
+         "passes": "20",
+         "successfulPasses": "15",
+         "xTPer100SuccessfulPasses": "9"
+        }
+       },
+       {
+        "labelId": "x",
+        "label": "3-5-2",
+        "formation": "3-5-2",
+        "fitScore": "5.0",
+        "periodId": "1",
+        "periodStart": "600",
+        "periodEnd": "1200",
+        "shapeRole": {
+         "role": [
+          {
+           "id": "x_CB.L",
+           "roleDescription": "CB.L",
+           "playerId": "hplayer1",
+           "shirtNumber": "1",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "60",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CB.R",
+           "roleDescription": "CB.R",
+           "playerId": "hplayer2",
+           "shirtNumber": "2",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "40",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CM",
+           "roleDescription": "CM",
+           "playerId": "hplayer3",
+           "shirtNumber": "3",
+           "fitScore": "1.0",
+           "averageRolePositionX": "50",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_F",
+           "roleDescription": "F",
+           "playerId": "hplayer4",
+           "shirtNumber": "4",
+           "fitScore": "1.0",
+           "averageRolePositionX": "70",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          }
+         ]
+        },
+        "shapeOutcome": {
+         "goals": "1",
+         "attempts": "3",
+         "openPlayCross": "2",
+         "touches": "50",
+         "lbp": "4",
+         "midfieldLbp": "2",
+         "defensiveLbp": "1",
+         "xT": "0.5",
+         "xG": "0.25",
+         "passes": "20",
+         "successfulPasses": "15",
+         "xTPer100SuccessfulPasses": "9"
+        }
+       },
+       {
+        "labelId": "x",
+        "label": "4-4-2",
+        "formation": "4-4-2",
+        "fitScore": "5.0",
+        "periodId": "2",
+        "periodStart": "0",
+        "periodEnd": "900",
+        "shapeRole": {
+         "role": [
+          {
+           "id": "x_CB.L",
+           "roleDescription": "CB.L",
+           "playerId": "hplayer1",
+           "shirtNumber": "1",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "60",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CB.R",
+           "roleDescription": "CB.R",
+           "playerId": "hplayer2",
+           "shirtNumber": "2",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "40",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CM",
+           "roleDescription": "CM",
+           "playerId": "hplayer3",
+           "shirtNumber": "3",
+           "fitScore": "1.0",
+           "averageRolePositionX": "50",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_F",
+           "roleDescription": "F",
+           "playerId": "hplayer4",
+           "shirtNumber": "4",
+           "fitScore": "1.0",
+           "averageRolePositionX": "70",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          }
+         ]
+        },
+        "shapeOutcome": {
+         "goals": "1",
+         "attempts": "3",
+         "openPlayCross": "2",
+         "touches": "50",
+         "lbp": "4",
+         "midfieldLbp": "2",
+         "defensiveLbp": "1",
+         "xT": "0.5",
+         "xG": "0.25",
+         "passes": "20",
+         "successfulPasses": "15",
+         "xTPer100SuccessfulPasses": "9"
+        }
+       }
+      ]
+     },
+     "outOfPossession": {
+      "shape": [
+       {
+        "labelId": "x",
+        "label": "4-5-1",
+        "formation": "4-5-1",
+        "fitScore": "5.0",
+        "periodId": "1",
+        "periodStart": "0",
+        "periodEnd": "1200",
+        "shapeRole": {
+         "role": [
+          {
+           "id": "x_CB.L",
+           "roleDescription": "CB.L",
+           "playerId": "hplayer1",
+           "shirtNumber": "1",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "60",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CB.R",
+           "roleDescription": "CB.R",
+           "playerId": "hplayer2",
+           "shirtNumber": "2",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "40",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CM",
+           "roleDescription": "CM",
+           "playerId": "hplayer3",
+           "shirtNumber": "3",
+           "fitScore": "1.0",
+           "averageRolePositionX": "50",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_F",
+           "roleDescription": "F",
+           "playerId": "hplayer4",
+           "shirtNumber": "4",
+           "fitScore": "1.0",
+           "averageRolePositionX": "70",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          }
+         ]
+        },
+        "shapeOutcome": {
+         "goalsConceded": "0",
+         "attemptsConceded": "1",
+         "openPlayCrossConceded": "0",
+         "touchesConceded": "30",
+         "lbpConceded": "3",
+         "midfieldLbpConceded": "1",
+         "defensiveLbpConceded": "0",
+         "xTConceded": "0.1",
+         "xGConceded": "0.05",
+         "passesConceded": "12",
+         "successfulPassesConceded": "9"
+        }
+       },
+       {
+        "labelId": "x",
+        "label": "4-5-1",
+        "formation": "4-5-1",
+        "fitScore": "5.0",
+        "periodId": "2",
+        "periodStart": "0",
+        "periodEnd": "900",
+        "shapeRole": {
+         "role": [
+          {
+           "id": "x_CB.L",
+           "roleDescription": "CB.L",
+           "playerId": "hplayer1",
+           "shirtNumber": "1",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "60",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CB.R",
+           "roleDescription": "CB.R",
+           "playerId": "hplayer2",
+           "shirtNumber": "2",
+           "fitScore": "1.0",
+           "averageRolePositionX": "30",
+           "averageRolePositionY": "40",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_CM",
+           "roleDescription": "CM",
+           "playerId": "hplayer3",
+           "shirtNumber": "3",
+           "fitScore": "1.0",
+           "averageRolePositionX": "50",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          },
+          {
+           "id": "x_F",
+           "roleDescription": "F",
+           "playerId": "hplayer4",
+           "shirtNumber": "4",
+           "fitScore": "1.0",
+           "averageRolePositionX": "70",
+           "averageRolePositionY": "50",
+           "averageRolePositionXNonCentered": "99",
+           "averageRolePositionYNonCentered": "99"
+          }
+         ]
+        },
+        "shapeOutcome": {
+         "goalsConceded": "0",
+         "attemptsConceded": "1",
+         "openPlayCrossConceded": "0",
+         "touchesConceded": "30",
+         "lbpConceded": "3",
+         "midfieldLbpConceded": "1",
+         "defensiveLbpConceded": "0",
+         "xTConceded": "0.1",
+         "xGConceded": "0.05",
+         "passesConceded": "12",
+         "successfulPassesConceded": "9"
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  "shapeSummary": {
+   "contestant": []
+  }
+ }
+}

@@ -14,6 +14,7 @@ test('names: every feed is recognised, case-insensitively, with or without a gam
   assert.deepEqual(classifyName(`MatchStats_${id}.JSON`), { role: 'matchstats', gameId: id });
   assert.deepEqual(classifyName(`remotephasesofplay_${id}.json`), { role: 'phases', gameId: id });
   assert.deepEqual(classifyName(`remoteplayerruns_${id}.json`), { role: 'runs', gameId: id });
+  assert.deepEqual(classifyName(`remoteshape_${id}.json`), { role: 'shapes', gameId: id });
   assert.deepEqual(classifyName('events.json'), { role: 'events', gameId: '' });
   assert.deepEqual(classifyName(`phases_${id}.json`), { role: 'phases', gameId: id });     // older name still works
   assert.deepEqual(classifyName(`${id}_epts_raw_data.txt`), { role: 'txt', gameId: id });
@@ -24,7 +25,7 @@ test('names: every feed is recognised, case-insensitively, with or without a gam
 test('a package (zip > folder > tar.gz + feeds, with macOS junk) is read in full', async () => {
   const s = await scan(samplePackage());
   assert.equal(s.ready, true);
-  assert.deepEqual(s.items.map((i) => [i.key, i.state]), [['epts', 'found'], ['events', 'found'], ['matchstats', 'found'], ['phases', 'found'], ['runs', 'found']]);
+  assert.deepEqual(s.items.map((i) => [i.key, i.state]), [['epts', 'found'], ['events', 'found'], ['matchstats', 'found'], ['phases', 'found'], ['runs', 'found'], ['shapes', 'found']]);
   assert.deepEqual(s.errors, []);
   assert.deepEqual(s.notes, []);
   const { payload } = await buildMatchPayload(s.inputs, options());     // and it really loads
@@ -34,7 +35,7 @@ test('a package (zip > folder > tar.gz + feeds, with macOS junk) is read in full
 test('a package with only tracking data loads and says what is missing', async () => {
   const s = await scan(samplePackage({ omit: ['remotephasesofplay', 'remoteplayerruns'] }));
   assert.equal(s.ready, true);
-  assert.deepEqual(s.items.map((i) => i.state), ['found', 'found', 'found', 'absent', 'absent']);
+  assert.deepEqual(s.items.map((i) => i.state), ['found', 'found', 'found', 'absent', 'absent', 'found']);
   assert.match(s.notes.join(' '), /phases of play, player runs not included/);
 });
 

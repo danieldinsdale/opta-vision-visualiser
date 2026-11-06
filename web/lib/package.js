@@ -12,6 +12,7 @@ export const ROLES = [
   { key: 'matchstats', label: 'Match stats', prefix: 'matchstats', names: ['matchstats'] },
   { key: 'phases', label: 'Phases of play', prefix: 'remotephasesofplay', names: ['remotephasesofplay', 'phasesofplay', 'phases'] },
   { key: 'runs', label: 'Player runs', prefix: 'remoteplayerruns', names: ['remoteplayerruns', 'playerruns', 'runs'] },
+  { key: 'shapes', label: 'Shapes', prefix: 'remoteshape', names: ['remoteshape', 'remoteshapes', 'shape', 'shapes'] },
 ];
 
 const GAME_ID = /^[A-Za-z0-9]{10,40}$/;
@@ -23,7 +24,7 @@ const isJunk = (name) => {
 
 /**
  * What is this file? Returns {role, gameId} where role is 'txt', 'xml', 'events', 'matchstats', 'phases',
- * 'runs' or 'archive', or null when it is not something we use. ``gameId`` is '' when the name carries none.
+ * 'runs', 'shapes' or 'archive', or null when it is not something we use. ``gameId`` is '' when the name carries none.
  */
 export function classifyName(name) {
   if (isJunk(name)) return null;
@@ -54,7 +55,7 @@ function idBefore(base, suffix) {
 
 /**
  * Looks through ``files`` ([{name, bytes}]) and any archives inside them and returns what it found:
- *   found:  {txt, xml, events, matchstats, phases, runs} -> {name, bytes, gameId}
+ *   found:  {txt, xml, events, matchstats, phases, runs, shapes} -> {name, bytes, gameId}
  *   extras: names of recognised files that were ignored (duplicates)
  *   skipped: number of other files that were not used
  */
