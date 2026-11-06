@@ -3663,7 +3663,9 @@ const _SEEK_NAME = { goal: 'Goal', og: 'Own goal', red: 'Red card', second: 'Sec
 const _seekItems = (D.events || []).filter(e => (e.t === 'goal' || e.t === 'card') && (e.ti === 0 || e.ti === 1)).map(e => {
   const ids = (e.quals || []).map(q => q.id);
   const kind = e.t === 'goal' ? (ids.includes(28) ? 'og' : 'goal') : ids.includes(33) ? 'red' : ids.includes(32) ? 'second' : 'yellow';
-  return { fi: e.fi, row: e.ti, kind, e };
+  // Own goals go to the side that benefited (the same reading as the score ticker); everything else sits with the player's team.
+  const row = e.t === 'goal' ? ((scoreboardGoals.find(s => s.fi === e.fi && s.own === ids.includes(28)) || { scorer: e.ti }).scorer) : e.ti;
+  return { fi: e.fi, row, kind, e };
 }).sort((a, b) => a.fi - b.fi);
 function _seekIcon(kind) {
   if (kind === 'goal') return '<img alt="" src="../data/ball.svg">';
@@ -3696,10 +3698,24 @@ function _seekTipHtml(first, n) {
   for (let q = first; q < first + n; q++) {
     const it = _seekItems[q];
     h += '<div class="sk-l"><span class="sk-i">' + _seekIcon(it.kind) + '</span><b>' + _esc(matchMinuteAt(it.fi)) + "' " + _SEEK_NAME[it.kind] + '</b><small>' +
-      _esc(eventPlayerName(it.e) || '') + ' · ' + _esc(it.row === 0 ? (D.lineup['teamname_1'] || 'Home') : (D.lineup['teamname_2'] || 'Away')) + '</small></div>';
+      _esc(eventPlayerName(it.e) || '') + ' · ' + _esc(it.e.ti === 0 ? (D.lineup['teamname_1'] || 'Home') : (D.lineup['teamname_2'] || 'Away')) + '</small></div>';
   }
   return h;
 }
+// Team column left of the bar: kit-colour disc and team code, aligned with the home (top) and away (bottom) icon rows
+const seekTeams = document.createElement('div');
+seekTeams.id = 'seek-teams';
+seekTeams.innerHTML = [1, 2].map(g => '<span class="st ' + (g === 1 ? 'st-h' : 'st-a') + '"><i></i>' + _esc(teamCode(g)) + '</span>').join('');
+seekEvEl.parentElement.insertBefore(seekTeams, seekEvEl.parentElement.firstChild);
+function paintSeekTeams() {
+  [...seekTeams.children].forEach((el, i) => {
+    const g = i + 1, c1 = _teamCol(g), c2 = teamColour2(g) || c1;
+    el.firstChild.style.background = 'linear-gradient(90deg,' + c1 + ' 50%,' + c2 + ' 50%)';
+    el.title = _teamName(g);
+  });
+}
+paintSeekTeams();
+document.addEventListener('kitchange', paintSeekTeams);
 if (seekEvEl) {
   const markerAt = ev => ev.target.closest('button.sk');
   seekEvEl.addEventListener('click', ev => {
