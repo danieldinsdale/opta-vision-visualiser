@@ -3652,6 +3652,76 @@ slider.value = 0;
 slider.style.setProperty('--p', '0%');
 slider.addEventListener('input', () => { stopPlayback(); render(parseInt(slider.value, 10)); });
 
+// ── Key events on the play bar: goals, own goals and cards (home above the track, away below) ─────────
+// Close together markers merge into one icon with a count; hover lists them, click jumps to the first.
+const seekEvEl = document.getElementById('seek-ev');
+const seekTipEl = document.createElement('div');
+seekTipEl.id = 'seek-tip';
+document.body.appendChild(seekTipEl);
+const _SEEK_RANK = { goal: 5, og: 4, red: 3, second: 2, yellow: 1 };
+const _SEEK_NAME = { goal: 'Goal', og: 'Own goal', red: 'Red card', second: 'Second yellow', yellow: 'Yellow card' };
+const _seekItems = (D.events || []).filter(e => (e.t === 'goal' || e.t === 'card') && (e.ti === 0 || e.ti === 1)).map(e => {
+  const ids = (e.quals || []).map(q => q.id);
+  const kind = e.t === 'goal' ? (ids.includes(28) ? 'og' : 'goal') : ids.includes(33) ? 'red' : ids.includes(32) ? 'second' : 'yellow';
+  return { fi: e.fi, row: e.ti, kind, e };
+}).sort((a, b) => a.fi - b.fi);
+function _seekIcon(kind) {
+  if (kind === 'goal') return '<img alt="" src="../data/ball.svg">';
+  if (kind === 'og') return '<img alt="" src="../data/ball-owngoal.svg">';
+  if (kind === 'second') return '<span class="sk-card y"></span><span class="sk-card r sk-2nd"></span>';
+  return '<span class="sk-card ' + (kind === 'red' ? 'r' : 'y') + '"></span>';
+}
+function buildSeekMarkers() {
+  if (!seekEvEl) return;
+  const W = slider.clientWidth, max = Math.max(1, Number(slider.max) || 1), pad = 7, gap = 14;
+  let html = '';
+  if (W > 0) for (const row of [0, 1]) {
+    const items = _seekItems.filter(it => it.row === row);
+    const xOf = it => pad + (W - 2 * pad) * it.fi / max;
+    for (let i = 0; i < items.length;) {
+      let k = i + 1;
+      while (k < items.length && xOf(items[k]) - xOf(items[i]) < gap) k++;
+      const grp = items.slice(i, k);
+      const top = grp.reduce((a, b) => (_SEEK_RANK[b.kind] > _SEEK_RANK[a.kind] ? b : a));
+      const x = (xOf(grp[0]) + xOf(grp[grp.length - 1])) / 2;
+      html += '<button type="button" class="sk ' + (row ? 'sk-a' : 'sk-h') + '" style="left:' + x.toFixed(1) + 'px" data-i="' + _seekItems.indexOf(grp[0]) + '" data-n="' + grp.length + '">' +
+        _seekIcon(top.kind) + (grp.length > 1 ? '<em>' + grp.length + '</em>' : '') + '</button>';
+      i = k;
+    }
+  }
+  seekEvEl.innerHTML = html;
+}
+function _seekTipHtml(first, n) {
+  let h = '';
+  for (let q = first; q < first + n; q++) {
+    const it = _seekItems[q];
+    h += '<div class="sk-l"><span class="sk-i">' + _seekIcon(it.kind) + '</span><b>' + _esc(matchMinuteAt(it.fi)) + "' " + _SEEK_NAME[it.kind] + '</b><small>' +
+      _esc(eventPlayerName(it.e) || '') + ' · ' + _esc(it.row === 0 ? (D.lineup['teamname_1'] || 'Home') : (D.lineup['teamname_2'] || 'Away')) + '</small></div>';
+  }
+  return h;
+}
+if (seekEvEl) {
+  const markerAt = ev => ev.target.closest('button.sk');
+  seekEvEl.addEventListener('click', ev => {
+    const b = markerAt(ev); if (!b) return;
+    stopPlayback(); render(_seekItems[Number(b.dataset.i)].fi);
+  });
+  const showTip = b => {
+    const r = b.getBoundingClientRect();
+    seekTipEl.innerHTML = _seekTipHtml(Number(b.dataset.i), Number(b.dataset.n));
+    seekTipEl.classList.add('visible');
+    const w = seekTipEl.offsetWidth;
+    seekTipEl.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + 'px';
+    seekTipEl.style.top = Math.max(4, r.top - seekTipEl.offsetHeight - 8) + 'px';
+  };
+  seekEvEl.addEventListener('mouseover', ev => { const b = markerAt(ev); if (b) showTip(b); });
+  seekEvEl.addEventListener('mouseout', ev => { if (markerAt(ev)) seekTipEl.classList.remove('visible'); });
+  seekEvEl.addEventListener('focusin', ev => { const b = markerAt(ev); if (b) showTip(b); });
+  seekEvEl.addEventListener('focusout', () => seekTipEl.classList.remove('visible'));
+  buildSeekMarkers();
+  if (window.ResizeObserver) new ResizeObserver(buildSeekMarkers).observe(slider); else window.addEventListener('resize', buildSeekMarkers);
+}
+
 btnPlay.addEventListener('click', togglePlay);
 
 document.getElementById('btn-reset').addEventListener('click', () => { stopPlayback(); render(0); });
