@@ -9,7 +9,7 @@ const $ = (id) => document.getElementById(id);
 const els = {
   status: $('status'), warnings: $('warnings'), frame: $('frame'), empty: $('empty'), emptyText: $('empty-text'),
   loadBtn: $('load-btn'), bundle: $('f-bundle'), txt: $('f-txt'), xml: $('f-xml'),
-  events: $('f-events'), stats: $('f-stats'), phases: $('f-phases'), runs: $('f-runs'), shapes: $('f-shapes'),
+  events: $('f-events'), stats: $('f-stats'), phases: $('f-phases'), runs: $('f-runs'), shapes: $('f-shapes'), momentum: $('f-momentum'),
   modeSwitch: $('mode-switch'), modePkg: $('mode-pkg'), modeLocal: $('mode-local'), modeSdapi: $('mode-sdapi'),
   pkgPanel: $('pkg-panel'), localPanel: $('local-panel'), sdapiPanel: $('sdapi-panel'),
 };
@@ -103,7 +103,7 @@ async function bytesOf(file) {
 const MAX_DROPPED_FILES = 2000;
 const FORCED_NAMES = {
   txt: `manual${EPTS_TXT_SUFFIX}`, xml: `manual${EPTS_XML_SUFFIX}`, events: 'remoteevents.json',
-  matchstats: 'matchstats.json', phases: 'remotephasesofplay.json', runs: 'remoteplayerruns.json', shapes: 'remoteshape.json',
+  matchstats: 'matchstats.json', phases: 'remotephasesofplay.json', runs: 'remoteplayerruns.json', shapes: 'remoteshape.json', momentum: 'momentum.json',
 };
 
 async function filesFromDrop(dt) {
@@ -210,7 +210,7 @@ const pkgPanel = makePanel({ host: $('pkg-result'), drop: $('pkg-drop'), input: 
 const ownPanel = makePanel({ host: $('own-result'), drop: $('own-drop'), input: $('f-own'), autoLoad: false });
 ownPanel.onChange = (summary) => { els.loadBtn.disabled = !(summary && summary.ready); };
 // The individual pickers feed the same staging, so the checklist and the load button stay in step
-for (const [el, role] of [[els.bundle, null], [els.txt, 'txt'], [els.xml, 'xml'], [els.events, 'events'], [els.stats, 'matchstats'], [els.phases, 'phases'], [els.runs, 'runs'], [els.shapes, 'shapes']]) {
+for (const [el, role] of [[els.bundle, null], [els.txt, 'txt'], [els.xml, 'xml'], [els.events, 'events'], [els.stats, 'matchstats'], [els.phases, 'phases'], [els.runs, 'runs'], [els.shapes, 'shapes'], [els.momentum, 'momentum']]) {
   el.addEventListener('change', () => { ownPanel.stage(el.files, role); });
 }
 
@@ -227,8 +227,9 @@ const FEEDS = [
   { key: 'phases', label: 'Phases of play', on: false },
   { key: 'runs', label: 'Player runs', on: false },
   { key: 'shapes', label: 'Team shapes', on: false },
+  { key: 'momentum', label: 'Match momentum', on: false },
 ];
-const STATUS_NAMES = { epts: 'EPTS tracking', events: 'Events', matchstats: 'Lineup and kit colours', phases: 'Phases of play', runs: 'Player runs', shapes: 'Team shapes' };
+const STATUS_NAMES = { epts: 'EPTS tracking', events: 'Events', matchstats: 'Lineup and kit colours', phases: 'Phases of play', runs: 'Player runs', shapes: 'Team shapes', momentum: 'Match momentum' };
 let feedStatus = null;   // {gameId, statuses}
 
 function renderFeeds() {
@@ -273,7 +274,7 @@ async function fetchFromSdapi() {
     setStatus('Downloading from the local server...');
     const get = async (name) => new Uint8Array(await (await api(`api/file/${encodeURIComponent(gameId)}/${name}`)).arrayBuffer());
     inputs.txt = await get('raw'); inputs.xml = await get('spec');
-    for (const key of ['events', 'matchstats', 'phases', 'runs', 'shapes']) if (res.files[key]) inputs[key] = await get(key);
+    for (const key of ['events', 'matchstats', 'phases', 'runs', 'shapes', 'momentum']) if (res.files[key]) inputs[key] = await get(key);
     await loadMatch(inputs);                      // one click: fetch and show
   } catch (e) { setStatus(e.message, true); }
 }

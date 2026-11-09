@@ -4,11 +4,11 @@ import { readEptsBundle } from './archive.js';
 import { parseEptsFrames, parseEptsMetadata } from './epts.js';
 import { applyAttackingDirection, loadJson, parseRemoteEvents, placeEvents } from './events.js';
 import { buildLineup, extractPhases, extractPressureEvents, extractRuns } from './feeds.js';
-import { buildContextPanels, buildShapes } from './panels.js';
+import { buildContextPanels, buildMomentum, buildShapes } from './panels.js';
 import { buildPayload } from './payload.js';
 
 /**
- * ``inputs``: {bundle?, txt?, xml?, events?, matchstats?, phases?, runs?, shapes?} (Uint8Array / string).
+ * ``inputs``: {bundle?, txt?, xml?, events?, matchstats?, phases?, runs?, shapes?, momentum?} (Uint8Array / string).
  * ``options``: {names: {eventTypes, qualifiers}, ballImage, vodUrls}.
  * Returns {payload, warnings, eventStats}.
  */
@@ -50,10 +50,11 @@ export async function buildMatchPayload(inputs, options, progress = () => {}) {
   const phases = inputs.phases ? extractPhases(loadJson(inputs.phases, 'Phases feed')) : [];
   const runs = inputs.runs ? extractRuns(loadJson(inputs.runs, 'Runs feed')) : [];
   const shapes = inputs.shapes ? buildShapes(lineup, loadJson(inputs.shapes, 'Shapes feed')) : null;
+  const momentum = inputs.momentum ? buildMomentum(loadJson(inputs.momentum, 'Momentum feed')) : [];
   progress('Building the animation data');
   const panels = buildContextPanels(lineup, phases, runs, pressures);
   const payload = buildPayload(frames, events, {
-    lineup, panels, shapes, teamColors, teamColors2, vodUrls: options.vodUrls, ballImage: options.ballImage,
+    lineup, panels, shapes, momentum, teamColors, teamColors2, vodUrls: options.vodUrls, ballImage: options.ballImage,
   });
   return { payload, warnings, eventStats, matchUuid: meta.matchUuid };
 }

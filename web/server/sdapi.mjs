@@ -9,7 +9,7 @@ import path from 'node:path';
 export const BASE_URL = 'https://api.performfeeds.com';
 export const MAX_INPUT_BYTES = 600 * 1024 * 1024;
 const TIMEOUT_MS = 30_000;
-const ALLOWED_FEEDS = new Set(['remotematchtrackingepts', 'remoteevents', 'matchstats', 'remotephasesofplay', 'remoteplayerruns', 'remoteshape']);
+const ALLOWED_FEEDS = new Set(['remotematchtrackingepts', 'remoteevents', 'matchstats', 'remotephasesofplay', 'remoteplayerruns', 'remoteshape', 'predictions/momentum']);
 const GAME_ID_RE = /^[A-Za-z0-9]{10,40}$/;
 
 export class SdapiError extends Error {}
@@ -21,8 +21,9 @@ export const OPTIONAL_FEEDS = [
   ['phases', 'Phases of play', 'remotephasesofplay'],
   ['runs', 'Player runs', 'remoteplayerruns'],
   ['shapes', 'Team shapes', 'remoteshape'],
+  ['momentum', 'Match momentum', 'predictions/momentum'],
 ];
-const CACHE_NAMES = { raw: 'epts_raw_data.txt', spec: 'epts_format_specification.xml', events: 'remoteevents.json', matchstats: 'matchstats.json', phases: 'remotephasesofplay.json', runs: 'remoteplayerruns.json', shapes: 'remoteshape.json' };
+const CACHE_NAMES = { raw: 'epts_raw_data.txt', spec: 'epts_format_specification.xml', events: 'remoteevents.json', matchstats: 'matchstats.json', phases: 'remotephasesofplay.json', runs: 'remoteplayerruns.json', shapes: 'remoteshape.json', momentum: 'momentum.json' };
 export const FILE_KEYS = Object.keys(CACHE_NAMES);
 
 export function validateGameId(gameId) {

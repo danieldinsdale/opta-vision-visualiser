@@ -452,8 +452,10 @@ function drawPitch(W, H) {
     ctx.arc(ax, ay, r * sc, -th1 * Math.PI / 180, -th2 * Math.PI / 180, true);
     ctx.stroke();
   };
-  arc(-L/2 + 11, 0, 10, 305, 55);
-  arc( L/2 - 11, 0, 10, 125, 235);
+  // The D is the 9.15 m circle round the penalty spot (11 m out), cut where it meets the box edge (16.5 m out): cos(a) = 5.5 / 9.15
+  const dA = Math.acos(5.5 / 9.15) * 180 / Math.PI;
+  arc(-L/2 + 11, 0, 9.15, 360 - dA, dA);
+  arc( L/2 - 11, 0, 9.15, 180 - dA, 180 + dA);
   arc(-L/2, -Wp/2, 1, 0, 90);
   arc( L/2, -Wp/2, 1, 90, 180);
   arc( L/2,  Wp/2, 1, 180, 270);
@@ -1749,7 +1751,7 @@ function _shapePitchSVG(g, seg) {
   for (let i = 0; i < 10; i += 2) s += '<rect x="' + (i * W / 10) + '" y="0" width="' + (W / 10) + '" height="' + H + '" fill="rgba(255,255,255,.035)"/>';
   s += '<rect width="' + W + '" height="' + H + '" ' + ln + '/><line x1="' + W / 2 + '" y1="0" x2="' + W / 2 + '" y2="' + H + '" ' + ln + '/><circle cx="' + W / 2 + '" cy="' + H / 2 + '" r="9.15" ' + ln + '/><circle cx="' + W / 2 + '" cy="' + H / 2 + '" r=".5" fill="rgba(255,255,255,.75)"/>' +
     '<circle cx="11" cy="' + H / 2 + '" r=".5" fill="rgba(255,255,255,.75)"/><circle cx="' + (W - 11) + '" cy="' + H / 2 + '" r=".5" fill="rgba(255,255,255,.75)"/>' +
-    '<path d="M16.5 ' + (H / 2 - 7.31) + ' A9.15 9.15 0 0 1 16.5 ' + (H / 2 + 7.31) + '" ' + ln + '/><path d="M' + (W - 16.5) + ' ' + (H / 2 - 7.31) + ' A9.15 9.15 0 0 0 ' + (W - 16.5) + ' ' + (H / 2 + 7.31) + '" ' + ln + '/>' +
+    '<path d="M16.5 ' + (H / 2 - 7.3126) + ' A9.15 9.15 0 0 1 16.5 ' + (H / 2 + 7.3126) + '" ' + ln + '/><path d="M' + (W - 16.5) + ' ' + (H / 2 - 7.3126) + ' A9.15 9.15 0 0 0 ' + (W - 16.5) + ' ' + (H / 2 + 7.3126) + '" ' + ln + '/>' +
     '<path d="M0 1 A1 1 0 0 0 1 0 M' + (W - 1) + ' 0 A1 1 0 0 0 ' + W + ' 1 M0 ' + (H - 1) + ' A1 1 0 0 1 1 ' + H + ' M' + (W - 1) + ' ' + H + ' A1 1 0 0 1 ' + W + ' ' + (H - 1) + '" ' + ln + '/>' +
     '<rect y="' + (H / 2 - 20.16) + '" width="16.5" height="40.32" ' + ln + '/><rect x="' + (W - 16.5) + '" y="' + (H / 2 - 20.16) + '" width="16.5" height="40.32" ' + ln + '/>' +
     '<rect y="' + (H / 2 - 9.16) + '" width="5.5" height="18.32" ' + ln + '/><rect x="' + (W - 5.5) + '" y="' + (H / 2 - 9.16) + '" width="5.5" height="18.32" ' + ln + '/>' +
@@ -3048,9 +3050,10 @@ function _build3DPitchLines() {
   // Penalty spots
   circPts(-L/2+11, 0, 0.15, 8);
   circPts( L/2-11, 0, 0.15, 8);
-  // Penalty D arcs (the portion outside each penalty area, ≈±57° from the goal axis)
-  arcPts(-L/2+11, 0, 10,  -57*RAD,   57*RAD, 20);
-  arcPts( L/2-11, 0, 10, 123*RAD,  237*RAD, 20);
+  // Penalty D arcs: the 9.15 m circle round the spot, ending exactly on the box edge (cos(a) = 5.5 / 9.15)
+  const dA = Math.acos(5.5 / 9.15);
+  arcPts(-L/2+11, 0, 9.15, -dA,          dA,          20);
+  arcPts( L/2-11, 0, 9.15, Math.PI - dA, Math.PI + dA, 20);
   // Corner arcs (r = 1 m)
   arcPts(-L/2, -W/2, 1,    0*RAD,  90*RAD, 8);
   arcPts( L/2, -W/2, 1,   90*RAD, 180*RAD, 8);
@@ -3675,6 +3678,7 @@ function _seekIcon(kind) {
 }
 function buildSeekMarkers() {
   if (!seekEvEl) return;
+  drawSeekMomentum();
   const W = slider.clientWidth, max = Math.max(1, Number(slider.max) || 1), pad = 7, gap = 14;
   let html = '';
   if (W > 0) for (const row of [0, 1]) {
@@ -3685,13 +3689,13 @@ function buildSeekMarkers() {
       while (k < items.length && xOf(items[k]) - xOf(items[i]) < gap) k++;
       const grp = items.slice(i, k);
       const top = grp.reduce((a, b) => (_SEEK_RANK[b.kind] > _SEEK_RANK[a.kind] ? b : a));
-      const x = (xOf(grp[0]) + xOf(grp[grp.length - 1])) / 2;
-      html += '<button type="button" class="sk ' + (row ? 'sk-a' : 'sk-h') + '" style="left:' + x.toFixed(1) + 'px" data-i="' + _seekItems.indexOf(grp[0]) + '" data-n="' + grp.length + '">' +
+      const ratio = (grp[0].fi + grp[grp.length - 1].fi) / 2 / max;   // position as a share of the slider, so a small resize does not move or rebuild markers
+      html += '<button type="button" class="sk ' + (row ? 'sk-a' : 'sk-h') + '" style="left:calc(' + pad + 'px + (100% - ' + 2 * pad + 'px) * ' + ratio.toFixed(5) + ')" data-i="' + _seekItems.indexOf(grp[0]) + '" data-n="' + grp.length + '">' +
         _seekIcon(top.kind) + (grp.length > 1 ? '<em>' + grp.length + '</em>' : '') + '</button>';
       i = k;
     }
   }
-  seekEvEl.innerHTML = html;
+  if (html !== seekEvEl._html) { seekEvEl._html = html; seekEvEl.innerHTML = html; }   // never replace markers that did not change: a click straddling a rebuild is lost
 }
 function _seekTipHtml(first, n) {
   let h = '';
@@ -3702,6 +3706,71 @@ function _seekTipHtml(first, n) {
   }
   return h;
 }
+
+// ── Momentum (optional feed): one bar per minute behind the icons - up = home, down = away, height = the feed's Combined value ──
+const seekMomEl = document.createElement('canvas');
+seekMomEl.id = 'seek-mom';
+seekEvEl.parentElement.insertBefore(seekMomEl, seekEvEl.parentElement.firstChild);
+const _momentum = Array.isArray(D.momentum) ? D.momentum : [];
+let _momStart = null;   // first frame of each (period, minute) and the frame after the last of each period
+function _momentumFrames() {
+  if (_momStart) return _momStart;
+  const start = new Map(), last = {};
+  for (let fi = 0; fi < TOTAL_FRAMES; fi++) {
+    const p = D.meta.period[fi], k = p + '|' + (Math.floor(D.meta.time[fi] / 60) + 1);
+    if (!start.has(k)) start.set(k, fi);
+    last[p] = fi + 1;
+  }
+  return (_momStart = { start, last });
+}
+let _momHover = null;   // 'period|minute' under the pointer
+function drawSeekMomentum() {
+  const W = slider.clientWidth, H = 36, dpr = window.devicePixelRatio || 1;
+  seekMomEl.style.display = _momentum.length && W > 0 ? '' : 'none';
+  if (!_momentum.length || W <= 0) return;
+  seekMomEl.width = Math.round(W * dpr); seekMomEl.height = Math.round(H * dpr);
+  seekMomEl.style.width = W + 'px'; seekMomEl.style.height = H + 'px';
+  const c = seekMomEl.getContext('2d');
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, W, H);
+  const { start, last } = _momentumFrames();
+  const max = Math.max(1, Number(slider.max) || 1), pad = 7, mid = H / 2, amp = 16;
+  const peak = Math.max(1e-9, ..._momentum.map(m => Math.abs(m[2])));
+  const x = fi => pad + (W - 2 * pad) * fi / max;
+  for (const [p, m, v] of _momentum) {
+    const a = start.get(p + '|' + m);
+    if (a === undefined) continue;
+    if (!v) { if (_momHover === p + '|' + m) { const b0 = start.get(p + '|' + (m + 1)) ?? last[p] ?? a + 1500; c.fillStyle = 'rgba(255,255,255,.14)'; c.fillRect(x(a) - .5, 0, Math.max(1, x(b0) - x(a)), H); } continue; }
+    const b = start.get(p + '|' + (m + 1)) ?? last[p] ?? a + 1500;
+    const x0 = x(a), w = Math.max(1, x(b) - x0 - 1), h = Math.max(1.5, Math.sqrt(Math.abs(v) / peak) * amp);   // square-root scale so quiet spells still show next to the big swings
+    if (_momHover === p + '|' + m) { c.fillStyle = 'rgba(255,255,255,.14)'; c.fillRect(x0 - .5, 0, w + 1, H); }
+    c.fillStyle = v > 0 ? 'rgba(161,139,245,.6)' : 'rgba(255,255,255,.36)';
+    c.fillRect(x0, v > 0 ? mid - h : mid, w, h);
+  }
+}
+
+
+// Hover over the momentum bars: what they are, the minute under the pointer and the feed's value for it
+const _momByMinute = new Map(_momentum.map(m => [m[0] + '|' + m[1], m[2]]));
+if (_momentum.length) {
+  const hideMom = () => { seekTipEl.classList.remove('visible'); if (_momHover) { _momHover = null; drawSeekMomentum(); } };
+  slider.addEventListener('mousemove', ev => {
+    const r = slider.getBoundingClientRect(), pad = 7, max = Math.max(1, Number(slider.max) || 1);
+    const fi = Math.max(0, Math.min(max, Math.round((ev.clientX - r.left - pad) / (r.width - 2 * pad) * max)));
+    const p = D.meta.period[fi], m = Math.floor(D.meta.time[fi] / 60) + 1, key = p + '|' + m, v = _momByMinute.get(key);
+    if (v === undefined) { hideMom(); return; }
+    if (_momHover !== key) { _momHover = key; drawSeekMomentum(); }
+    const who = v > 0 ? (D.lineup['teamname_1'] || 'Home') : v < 0 ? (D.lineup['teamname_2'] || 'Away') : null;
+    seekTipEl.innerHTML = '<div class="sk-l sk-m"><b>Match momentum · ' + ((p - 1) * 45 + m) + "'</b><small>" +
+      (who ? _esc(who) + ' on top (' + (v > 0 ? '+' : '') + v.toFixed(3) + ')' : 'Even (0.000)') + '</small><small>Bars above the line = home, below = away</small></div>';
+    seekTipEl.classList.add('visible');
+    const w = seekTipEl.offsetWidth, br = slider.getBoundingClientRect();
+    seekTipEl.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, ev.clientX - w / 2)) + 'px';
+    seekTipEl.style.top = Math.max(4, br.top - seekTipEl.offsetHeight - 8) + 'px';
+  });
+  slider.addEventListener('mouseleave', hideMom);
+}
+
 // Team column left of the bar: kit-colour disc and team code, aligned with the home (top) and away (bottom) icon rows
 const seekTeams = document.createElement('div');
 seekTeams.id = 'seek-teams';
@@ -3716,11 +3785,18 @@ function paintSeekTeams() {
 }
 paintSeekTeams();
 document.addEventListener('kitchange', paintSeekTeams);
+// Clicking a marker lands one second (BASE_FPS frames) before the moment so the build-up is seen, but never earlier than the start of its period
+function _oneSecondBefore(fi) {
+  let t = Math.max(0, fi - BASE_FPS);
+  const p = D.meta.period[fi];
+  while (t < fi && D.meta.period[t] !== p) t++;
+  return t;
+}
 if (seekEvEl) {
   const markerAt = ev => ev.target.closest('button.sk');
   seekEvEl.addEventListener('click', ev => {
     const b = markerAt(ev); if (!b) return;
-    stopPlayback(); render(_seekItems[Number(b.dataset.i)].fi);
+    stopPlayback(); render(_oneSecondBefore(_seekItems[Number(b.dataset.i)].fi));
   });
   const showTip = b => {
     const r = b.getBoundingClientRect();
@@ -4252,6 +4328,7 @@ function _closeAllBottomPanels() {
   const fltTeam   = document.getElementById('flt-team');
   const fltPlayer = document.getElementById('flt-player');
   const fltQualifier = document.getElementById('flt-qualifier');
+  const fltEid = document.getElementById('flt-eid');
 
   periods.forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = 'Period ' + p; fltPeriod.appendChild(o); });
   types.forEach(t   => { const o = document.createElement('option'); o.value = t; o.textContent = t; fltType.appendChild(o); });
@@ -4276,6 +4353,7 @@ function _closeAllBottomPanels() {
   });
 
   [fltPeriod, fltType, fltTeam, fltPlayer, fltQualifier].forEach(s => s.addEventListener('change', renderTable));
+  fltEid.addEventListener('input', renderTable);                      // search as you type
   document.addEventListener('kitchange', () => { if (tbody.children.length) renderTable(); });   // team colours changed
 
   function renderTable() {
@@ -4284,11 +4362,13 @@ function _closeAllBottomPanels() {
     const fg  = fltTeam.value;
     const fpl = fltPlayer.value;
     const fq  = fltQualifier.value;
+    const fe  = fltEid.value.trim();
 
     const filtered = D.events.filter(e => {
       if (fp  && e.p !== parseInt(fp,  10)) return false;
       if (ft  && e.t !== ft)                return false;
       if (fg  && e.ti !== parseInt(fg,  10)) return false;
+      if (fe  && !String(e.eid ?? '').includes(fe)) return false;   // Event ID contains what was typed
       if (fpl) {
         const parts = fpl.split(':').map(Number);
         if (e.g !== parts[0] || e.jn !== parts[1]) return false;

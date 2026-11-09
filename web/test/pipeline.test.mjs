@@ -107,3 +107,10 @@ test('shapes feed: only the shapeHistory node is read, positions are the centred
   const { payload: without } = await buildMatchPayload(inputs(), options());
   assert.equal('shapes' in without, false);                                           // the feed is optional
 });
+
+test('momentum feed: the Combined value per minute, period-relative minutes, optional', async () => {
+  const { payload } = await buildMatchPayload(inputs({ momentum: new Uint8Array(fixture('momentum.json')) }), options());
+  assert.deepEqual(payload.momentum, [[1, 1, 0.03], [1, 2, -0.05], [1, 3, 0], [1, 4, 0.08], [2, 1, -0.02], [2, 2, 0.04], [2, 3, 0.1]]);   // timeMin 46 is the first minute of period 2
+  const { payload: without } = await buildMatchPayload(inputs(), options());
+  assert.equal('momentum' in without, false);
+});

@@ -121,7 +121,7 @@ test('with the local server: SDAPI panel, per-feed status, one-click fetch and s
   $('mode-sdapi').click();
   assert.equal($('sdapi-panel').hidden, false);
   assert.equal($('local-panel').hidden, true);
-  assert.equal($('feeds').children.length, 6);
+  assert.equal($('feeds').children.length, 7);
   $('game-id').value = 'abcdefghij1234';
   $('game-id').dispatchEvent(new window.Event('input'));
   $('fetch-btn').click();
@@ -144,7 +144,7 @@ test('data package: drop-zone choice shows the checklist and loads without anoth
   pick(window, 'f-package', fakeFile('sample.zip', Buffer.from(samplePackage())));
   await until(() => window.OPTA_PAYLOAD);
   const rows = [...$('pkg-result').querySelectorAll('li')].map((li) => li.textContent);
-  assert.equal(rows.length, 6);
+  assert.equal(rows.length, 7);
   assert.ok(rows.every((r) => r.includes('\u2713')), rows.join(' | '));
   assert.ok(window.OPTA_PAYLOAD.events.length > 0);
   assert.equal($('frame').hidden, false);

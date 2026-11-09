@@ -81,6 +81,7 @@ export function samplePackage({ id = GAME, omit = [], extra = [] } = {}) {
     { name: `${dir}remotephasesofplay_${id}.json`, data: fixture('phases.json') },
     { name: `${dir}remoteplayerruns_${id}.json`, data: fixture('runs.json') },
     { name: `${dir}remoteshape_${id}.json`, data: fixture('shape.json') },
+    { name: `${dir}momentum_${id}.json`, data: fixture('momentum.json') },
     { name: `__MACOSX/${dir}._remoteevents_${id}.json`, data: Buffer.from('junk') },
     { name: `${dir}.DS_Store`, data: Buffer.from('junk') },
   ];

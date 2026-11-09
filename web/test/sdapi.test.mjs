@@ -41,6 +41,14 @@ test('errors never contain the outlet key and refuse unknown feeds', async () =>
   await assert.rejects(client.getFeed('somethingelse', GAME), /Unsupported feed/);
 });
 
+test('the momentum feed is requested from /soccerdata/predictions/momentum/<key>/<game>', async () => {
+  let url;
+  globalThis.fetch = async (u) => { url = u; return new Response('{"liveData":{}}', { status: 200 }); };
+  await new SdapiClient('K12345678').getFeed('predictions/momentum', GAME);
+  assert.ok(url.startsWith(`https://api.performfeeds.com/soccerdata/predictions/momentum/K12345678/${GAME}?`));
+  assert.ok(url.includes('_fmt=json') && url.includes('_rt=c'));
+});
+
 test('redirects are refused and the key is never sent as a header', async () => {
   let init;
   globalThis.fetch = async (url, i) => { init = i; return new Response('', { status: 302, headers: { location: 'https://evil.example/' } }); };
@@ -72,7 +80,7 @@ const states = (r) => Object.fromEntries(r.statuses.map((s) => [s.label, s.state
 
 test('optional feed failures do not block; tracking failure blocks everything', async () => {
   const ok = await fetchMatch(fakeClient({ failFeed: 'matchstats' }), GAME, { events: true, matchstats: true }, null, false);
-  assert.deepEqual(states(ok), { 'EPTS tracking': 'ok', Events: 'ok', 'Lineup and kit colours': 'failed', 'Phases of play': 'skipped', 'Player runs': 'skipped', 'Team shapes': 'skipped' });
+  assert.deepEqual(states(ok), { 'EPTS tracking': 'ok', Events: 'ok', 'Lineup and kit colours': 'failed', 'Phases of play': 'skipped', 'Player runs': 'skipped', 'Team shapes': 'skipped', 'Match momentum': 'skipped' });
   assert.ok(ok.files.raw && ok.files.events && !ok.files.matchstats);
   const down = await fetchMatch(fakeClient({ eptsFails: true }), GAME, { events: true }, null, false);
   assert.equal(down.files, null);
