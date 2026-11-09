@@ -140,3 +140,24 @@ export function buildContextPanels(lineup, phases, runs, pressures) {
   }
   return { phasesByPeriod, runsByPeriod, pressures: pressuresOut };
 }
+
+/** Period offsets (minutes) of the momentum feed's running match minute: period 2 starts at 45, extra time at 90 and 105. */
+const MOMENTUM_OFFSET = { 1: 0, 2: 45, 3: 90, 4: 105 };
+
+/**
+ * Optional momentum feed -> [[period, minute within the period (1 = its first minute), combined]] sorted by time.
+ * ``combined`` is the feed's own "Combined" value (home minus away: positive favours the home side). Nothing is calculated.
+ */
+export function buildMomentum(feed) {
+  const list = Array.isArray(feed) ? feed : ((feed || {}).liveData || {}).predictions || [];
+  const seen = new Map();
+  for (const item of list) {
+    if (!item || item.type !== 'Momentum') continue;
+    const p = Number(item.periodId), m = Number(item.timeMin) - (MOMENTUM_OFFSET[p] ?? NaN);
+    const combined = (item.prediction || []).find((x) => x && x.type === 'Combined');
+    const c = combined ? Number(combined.probability) : NaN;
+    if (!Number.isInteger(p) || !Number.isInteger(m) || m < 1 || !Number.isFinite(c)) continue;
+    seen.set(`${p}|${m}`, [p, m, c]);
+  }
+  return [...seen.values()].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+}

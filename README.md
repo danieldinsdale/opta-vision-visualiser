@@ -27,13 +27,15 @@ Run `npm start` in `web/` and open `http://127.0.0.1:8765`. The sidebar then als
 
 The easiest route is a **data package**: one `.zip` holding the EPTS data and any of the optional feeds, in any folder layout. Files are recognised **by name**, so none of them has to be picked one by one. The same rules apply to loose files and folders dropped on **My own files**.
 
-| Input | Required | Name it is matched by | What it adds |
-|-------|----------|-----------------------|--------------|
-| EPTS tracking | Yes | `<id>_epts_raw_data.txt` and `<id>_epts_format_specification.xml` (25 Hz), loose or inside a `.tar.gz` / `.tar` / `.zip` within the package | Player and ball positions |
+| Input | Required | Name it is matched by | What it adds                                                                                                                                                     |
+|-------|----------|-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| EPTS tracking | Yes | `<id>_epts_raw_data.txt` and `<id>_epts_format_specification.xml` (25 Hz), loose or inside a `.tar.gz` / `.tar` / `.zip` within the package | Player and ball positions                                                                                                                                        |
 | Events | No | `remoteevents_<id>.json` (or `remoteevents.json`) | Event labels and the live score. Events are placed on the tracking timeline by event id (carried on EPTS ball rows), falling back to video time, then match clock |
-| Match stats | No | `matchstats_<id>.json` | Team names and codes, score, competition, venue, kit colours, player names |
-| Phases of play | No | `remotephasesofplay_<id>.json` (`phases_<id>.json` also accepted) | Phase overlay and panel (the feed, or the extracted `phase` list) |
-| Player runs | No | `remoteplayerruns_<id>.json` (`runs_<id>.json` also accepted) | Run highlights and panel (the feed, or the extracted `run` list) |
+| Match stats | No | `matchstats_<id>.json` | Team names and codes, score, competition, venue, kit colours, player names                                                                                       |
+| Phases of play | No | `remotephasesofplay_<id>.json` (`phases_<id>.json` also accepted) | Phase overlay and panel (the feed, or the extracted `phase` list)                                                                                                |
+| Player runs | No | `remoteplayerruns_<id>.json` (`runs_<id>.json` also accepted) | Run highlights and panel (the feed, or the extracted `run` list)                                                                                                 |
+| Shapes | No | `remoteshape_<id>.json` | Shape analysis panel                                                                                                                                             |
+| Momentum | No | `momentum_<id>.json` | Bars chart of combined momentum behind the play-bar icons                                                                               |
 
 Names ignore letter case and macOS junk (`__MACOSX`, `._*`, `.DS_Store`). The sidebar lists what was found and what was left out. A feed whose game id differs from the tracking data's is flagged and not used, and missing optional files only switch off the overlays that need them. Archives may be nested two deep (a `.zip` containing a `.tar.gz`), and limits on file count and unpacked size apply.
 

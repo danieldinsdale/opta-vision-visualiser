@@ -163,6 +163,7 @@ export function buildPayload(frames, events, extras) {
     periodStartTimes,
     kickoffFrameCounts: { 1: 10000, 2: 100000, 3: 2000000, 4: 3000000 },
   };
+  if (extras.momentum && extras.momentum.length) payload.momentum = extras.momentum;   // optional: momentum feed, [[period, minute, combined]]
   if (extras.shapes && Object.keys(extras.shapes).length) payload.shapes = neutralise(extras.shapes);   // optional: remoteshape feed
   for (const key of ['sources', 'lineup', 'events', 'phases', 'runs', 'pressures']) payload[key] = neutralise(payload[key]);
   return payload;
