@@ -3689,13 +3689,13 @@ function buildSeekMarkers() {
       while (k < items.length && xOf(items[k]) - xOf(items[i]) < gap) k++;
       const grp = items.slice(i, k);
       const top = grp.reduce((a, b) => (_SEEK_RANK[b.kind] > _SEEK_RANK[a.kind] ? b : a));
-      const x = (xOf(grp[0]) + xOf(grp[grp.length - 1])) / 2;
-      html += '<button type="button" class="sk ' + (row ? 'sk-a' : 'sk-h') + '" style="left:' + x.toFixed(1) + 'px" data-i="' + _seekItems.indexOf(grp[0]) + '" data-n="' + grp.length + '">' +
+      const ratio = (grp[0].fi + grp[grp.length - 1].fi) / 2 / max;   // position as a share of the slider, so a small resize does not move or rebuild markers
+      html += '<button type="button" class="sk ' + (row ? 'sk-a' : 'sk-h') + '" style="left:calc(' + pad + 'px + (100% - ' + 2 * pad + 'px) * ' + ratio.toFixed(5) + ')" data-i="' + _seekItems.indexOf(grp[0]) + '" data-n="' + grp.length + '">' +
         _seekIcon(top.kind) + (grp.length > 1 ? '<em>' + grp.length + '</em>' : '') + '</button>';
       i = k;
     }
   }
-  seekEvEl.innerHTML = html;
+  if (html !== seekEvEl._html) { seekEvEl._html = html; seekEvEl.innerHTML = html; }   // never replace markers that did not change: a click straddling a rebuild is lost
 }
 function _seekTipHtml(first, n) {
   let h = '';
@@ -3785,11 +3785,18 @@ function paintSeekTeams() {
 }
 paintSeekTeams();
 document.addEventListener('kitchange', paintSeekTeams);
+// Clicking a marker lands one second (BASE_FPS frames) before the moment so the build-up is seen, but never earlier than the start of its period
+function _oneSecondBefore(fi) {
+  let t = Math.max(0, fi - BASE_FPS);
+  const p = D.meta.period[fi];
+  while (t < fi && D.meta.period[t] !== p) t++;
+  return t;
+}
 if (seekEvEl) {
   const markerAt = ev => ev.target.closest('button.sk');
   seekEvEl.addEventListener('click', ev => {
     const b = markerAt(ev); if (!b) return;
-    stopPlayback(); render(_seekItems[Number(b.dataset.i)].fi);
+    stopPlayback(); render(_oneSecondBefore(_seekItems[Number(b.dataset.i)].fi));
   });
   const showTip = b => {
     const r = b.getBoundingClientRect();
