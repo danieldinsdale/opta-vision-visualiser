@@ -1015,8 +1015,9 @@ let   dockPref    = 'side';
 try { if (localStorage.getItem('opta-dock') === 'below') dockPref = 'below'; } catch (e) { /* storage unavailable */ }
 const DOCK_W_MIN = 360, DOCK_W_MAX = 900;
 
+const NARROW = window.matchMedia('(max-width: 900px)');      // phones / small tablets: one column, tables always below the pitch
 function _applyDock() {
-  dockSide = _hasTables && !hasVod && dockPref === 'side';
+  dockSide = _hasTables && !hasVod && dockPref === 'side' && !NARROW.matches;
   const home = document.getElementById('gif-panel');
   if (dockSide) rightColEl.appendChild(bottomPanelsEl);
   else home.parentNode.insertBefore(bottomPanelsEl, home);
@@ -1030,6 +1031,7 @@ function _applyDock() {
   _setRightCol();
   window.dispatchEvent(new Event('resize'));          // the pitch canvas re-fits its column
 }
+NARROW.addEventListener('change', () => { _applyDock(); resizeCanvas(); });
 for (const [id, pref] of [['dock-side', 'side'], ['dock-below', 'below']]) {
   document.getElementById(id).addEventListener('click', () => {
     dockPref = pref;
@@ -3866,14 +3868,19 @@ function resizeCanvas() {
   let W = wrap.clientWidth, H = wrap.clientHeight;
   // 2D: the pane is only as tall as the pitch picture (no empty band below it), so the controls and tables sit directly under/beside it
   const mc = document.getElementById('main-content');
-  if (is3D || !D || !D.pitch) { if (mc.style.height) { mc.style.height = ''; H = wrap.clientHeight; } }
-  else {
+  const narrow = NARROW.matches, pcol = document.getElementById('pitch-col');
+  const box = narrow ? pcol : mc;                                   // narrow: the pitch column has the height and the right column flows below it
+  if (narrow) mc.style.height = ''; else pcol.style.height = '';
+  if (is3D || !D || !D.pitch) {
+    if (narrow) { const w3 = Math.round(Math.max(280, W * 0.75)); if (Math.abs(w3 - H) > 2) { box.style.height = w3 + 'px'; H = wrap.clientHeight; } }
+    else if (mc.style.height) { mc.style.height = ''; H = wrap.clientHeight; }
+  } else {
     const dataW = D.pitch.L + 2 * MARGIN, dataH = D.pitch.W + 2 * MARGIN;
     const head = Math.round(Math.min(68, Math.max(66, H * 0.1)));
     const natural = Math.ceil(head + dataH * (W / dataW) + (_isExporting() ? 28 : 0));
     const maxH = Math.round(Math.min(780, Math.max(600, window.innerHeight * 0.76)));
     const want = Math.min(natural, maxH);
-    if (Math.abs(want - H) > 2) { mc.style.height = want + 'px'; H = wrap.clientHeight; }
+    if (Math.abs(want - H) > 2) { box.style.height = want + 'px'; H = wrap.clientHeight; }
   }
   DPR = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
   canvas.width  = Math.round(W * DPR);

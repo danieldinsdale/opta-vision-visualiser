@@ -106,3 +106,18 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 @keyframes slide { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
 @media (prefers-reduced-motion: reduce) { .bar i { animation: none; width: 100%; } }
 .priv { margin-top: auto; padding-top: 14px; }
+
+/* ── Responsive shell: under 900px the sidebar becomes a slide-over drawer under a slim top bar ── */
+@media (max-width: 900px) {
+  html, body { height: auto; min-height: 100%; }
+  body { flex-direction: column; height: 100dvh; overflow: hidden; }
+  #rail, body.side-collapsed #rail { display: flex; flex: 0 0 48px; height: 48px; width: 100%; flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; border-right: 0; border-bottom: 1px solid var(--line); }
+  #rail img { width: 28px; height: 28px; }
+  #side-open[hidden] { display: inline-block !important; }                 /* the menu button is always there; the drawer has its own close button */
+  #sidebar { position: fixed; z-index: 30; top: 48px; left: 0; bottom: 0; width: min(340px, 90vw); height: auto; box-shadow: 0 0 0 100vmax rgba(8, 2, 16, .55), 8px 0 32px rgba(0, 0, 0, .5); }
+  body.side-collapsed #sidebar { display: none; }
+  #stage { flex: 1 1 0; height: auto; min-height: 0; }
+  #frame { height: 100%; min-height: calc(100dvh - 48px); }
+  #empty-title { font-size: 22px; }
+  .icon-btn { width: 36px; height: 36px; }
+}

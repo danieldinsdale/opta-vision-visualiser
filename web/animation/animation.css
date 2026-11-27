@@ -597,3 +597,55 @@ body { background: transparent; }
 
 /* Fixed-width readout: the play bar must not resize as the digits change (monospace, sized for the longest value) */
 #meta-display { flex: 0 0 auto; width: 42ch; overflow: hidden; text-align: left; font-variant-numeric: tabular-nums; }
+
+/* ═══ Responsive layout ═══════════════════════════════════════════════════════
+   These media queries use the width of this frame (the animation iframe), not the browser window.
+   ≤1100: tighter spacing · ≤900: one column (pitch, then the right column and tables below) · ≤600: phone */
+@media (max-width: 1100px) {
+  #app-bar { padding-left: 16px; padding-right: 16px; }
+  #controls { margin-left: 16px; margin-right: 16px; }
+  #bottom-panels { padding-left: 16px; padding-right: 16px; }
+}
+@media (max-width: 900px) {
+  #main-content { flex-direction: column; height: auto !important; }
+  #pitch-col { flex: none; width: 100%; }
+  #right-col, body.dock-side #right-col { flex: none !important; width: 100%; max-width: none; min-width: 0; border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+  #dock-resize, #dock-switch, #dock-note { display: none !important; }
+  /* play bar: buttons + readout on the first row, the bar full width on its own row, then Go to / speed */
+  #controls > .ctrl-row:first-child { gap: 8px 10px; }
+  #seek-wrap { order: 5; flex: 1 0 100%; }
+  #meta-display { width: auto; flex: 1 1 0; min-width: 0; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
+  .jump { order: 6; border-left: 0; padding-left: 0; margin-left: 0; flex-wrap: wrap; }
+  #speed-select { order: 7; margin-left: auto; }
+  /* tables: scroll sideways rather than overflow the page */
+  #events-body, #phases-body, #runs-body-table { overflow: auto; -webkit-overflow-scrolling: touch; }
+  #events-filters, #phases-filters, #runs-filters-row { width: 100%; }
+  #events-filters select, #events-filters input { max-width: 100%; }
+}
+@media (max-width: 600px) {
+  #app-bar { padding: 10px 12px 4px; gap: 8px; }
+  #bar-name { font-size: 18px; }
+  #bar-sub { flex-basis: 100%; }
+  #bar-sources { order: 3; width: 100%; }
+  #btn-kbd { padding: 8px 10px; font-size: 0; gap: 0; }               /* icon only */
+  #btn-kbd .ic { margin: 0; }
+  #btn-export-open { padding: 9px 14px; }
+  #controls { margin: 8px 12px 0; padding: 12px; }
+  #bottom-panels { padding-left: 12px; padding-right: 12px; }
+  #overlays-card { margin-left: 12px; margin-right: 12px; }
+  #events-table th:nth-child(5), #events-table td:nth-child(5),       /* Event ID */
+  #events-table th:nth-child(8), #events-table td:nth-child(8),       /* Jersey */
+  #events-table th:nth-child(9), #events-table td:nth-child(9) { display: none; }   /* Qualifiers */
+  .ev-clips { margin-left: 0; padding-left: 0; border-left: 0; flex-wrap: wrap; }
+  #gif-panel .ctrl-row { gap: 8px; }
+  #kbd-help { width: min(300px, calc(100vw - 16px)); }
+}
+/* Touch screens: bigger targets (hover-only cues already work as taps) */
+@media (pointer: coarse) {
+  .btn { min-height: 40px; }
+  #frame-slider { height: 28px; }
+  .sk::before { content: ""; position: absolute; inset: -10px; }
+  #events-table input[type=checkbox] { width: 20px; height: 20px; }
+  #events-table td, #events-table th { padding-top: 10px; padding-bottom: 10px; }
+  .time-input, .ctrl-select { min-height: 36px; }
+}
