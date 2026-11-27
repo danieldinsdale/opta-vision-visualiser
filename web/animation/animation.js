@@ -12,7 +12,7 @@
 //    Controls ............ Meta display + time input, Playback, Source toggles, Wiring
 //    3D .................. 3D renderer (Three.js, loaded on first use)
 //    Tables .............. Events, Runs and Phases tables (one open at a time)
-//    Export & layout ..... GIF + Video export, Auto-fit of the host iframe
+//    Export & layout ..... Video export, Auto-fit of the host iframe
 // ═════════════════════════════════════════════════════════════════════════════
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -26,7 +26,7 @@ const D = (() => {
 })();
 if (!D) throw new Error('No match data: open the visualiser page (index.html) and load a match.');
 
-// Optional third-party scripts (3D, GIF export, HLS video): vendored copies in web/vendor, set by
+// Optional third-party scripts (3D, HLS video): vendored copies in web/vendor, set by
 // vendor-config.js, so no request ever leaves the page.
 const VENDOR = window.OPTA_VENDOR;
 
@@ -217,7 +217,7 @@ document.getElementById('btn-video-reload').addEventListener('click', () => {
 //  State
 // ─────────────────────────────────────────────────────────────────────────────
 const canvas  = document.getElementById('pc');
-const ctx     = canvas.getContext('2d');
+let ctx        = canvas.getContext('2d');   // swapped briefly to the static-pitch layer while it is (re)drawn
 const slider  = document.getElementById('frame-slider');
 const btnPlay = document.getElementById('btn-play');
 const metaDiv = document.getElementById('meta-display');
@@ -300,7 +300,12 @@ let T = {};
 // ─────────────────────────────────────────────────────────────────────────────
 //  Coordinate helpers
 // ─────────────────────────────────────────────────────────────────────────────
-const MARGIN = 2.3;           // metres around the pitch inside the picture (the goal nets are 2 m deep, so the grass must reach past them)
+const MARGIN_PLAIN = 2.3;     // metres around the pitch inside the picture (the goal nets are 2 m deep, so the grass must reach past them)
+const MARGIN_BOARDS = 8.0;    // with boards and crowd: grass run-off, a small gap, the 2.4 m board band, then a strip of stand with the crowd
+let showBoards = false;                                              // the Effects button: boards, crowd and light; off = the plain pitch
+try { if (localStorage.getItem('opta-fx2') === 'on') showBoards = true; } catch (e) { /* storage unavailable */ }
+const showFx = true;
+let MARGIN = showBoards ? MARGIN_BOARDS : MARGIN_PLAIN;
 const GRASS_RUNOFF = 2.2;     // grass beyond the touchlines/goal lines (metres): beyond the net depth so the whole net sits on grass; stays below MARGIN so a thin dark rim remains
 const BAR_COLOUR = '#14061f'; // header (scoreboard) and footer (match title) bars: the page colour, so the scoreboard floats on the page
 const GOAL_W = 7.32, GOAL_NET_D = 2.0, NET_CELL = 0.3;   // goal mouth width, net depth behind the line (metres); NET_CELL is the 3D net's mesh size
@@ -366,7 +371,231 @@ function texPattern(g, L, x0, y0, k) {
 }
 const tileCss = (k) => '#' + tileHex(k).toString(16).padStart(6, '0');
 
+// ── Advertising boards ────────────────────────────────────────────────────────
+// LED perimeter boards round the pitch, drawn on the canvas so saved clips have them too. Shown "folded out": the top boards read
+// upright, the bottom ones are inverted, and the end boards turn 90 degrees, so every board's logo faces the pitch. Each board runs a
+// slide show keyed to the match clock (it stops when paused) and the boards are offset from one another.
+const AD_BAND_IN = GRASS_RUNOFF + 0.2, AD_GAP_M = 0.25, AD_SECS = 6, AD_FADE = 0.12;
+const AD_LOGOS = {};
+for (const [k, f] of Object.entries({
+  vw: 'opta-vision-logo-white.svg', vb: 'boards/opta-vision-dark.svg', sw: 'boards/stats-perform-white.svg',
+  sb: 'boards/stats-perform-dark.svg', aw: 'boards/opta-ai-white.svg', jw: 'boards/opta-joe-white.png',
+})) { const im = new Image(); im.onload = () => { if (typeof currentFi !== 'undefined') render(currentFi); }; im.src = '../assets/' + f; AD_LOGOS[k] = im; }
+const AD_SLIDES = [
+  { bg: ['#14061f', '#3F1568'], logo: 'vw', glow: '#6a2fb0' },
+  { bg: ['#3F1568', '#9e07ae'], logo: 'sw', glow: '#9e07ae' },
+  { bg: ['#14061f', '#14061f'], logo: 'aw', glow: '#3F1568', accent: true },
+  { bg: ['#ffffff', '#ffffff'], logo: 'sb', glow: '#b9aed6' },
+  { bg: ['#FAA51A', '#F06424'], logo: 'vb', glow: '#F06424' },
+  { bg: ['#14061f', '#14061f'], logo: 'jw', glow: '#3F1568' },
+  { bg: ['#ffffff', '#ffffff'], logo: 'vb', glow: '#b9aed6' },
+  { bg: ['#2a1048', '#14061f'], logo: 'sw', glow: '#3F1568' },
+];
+let _adGrid = null, _adGridDpr = 0;
+function _adGridPattern() {                                          // the LED pixel grid: a dark line down and along each 3 px cell
+  if (_adGrid && _adGridDpr === DPR) return _adGrid;
+  const s = Math.max(2, Math.round(3 * DPR)), c = document.createElement('canvas'); c.width = c.height = s;
+  const g = c.getContext('2d'); g.fillStyle = 'rgba(0,0,0,0.16)'; g.fillRect(s - Math.max(1, Math.round(DPR)), 0, Math.max(1, Math.round(DPR)), s); g.fillRect(0, s - Math.max(1, Math.round(DPR)), s, Math.max(1, Math.round(DPR)));
+  _adGridDpr = DPR; _adGrid = ctx.createPattern(c, 'repeat');
+  _adGrid.setTransform(new DOMMatrix().scale(1 / DPR));
+  return _adGrid;
+}
+function _adSlide(s, x, y, w, h, alpha) {
+  if (alpha <= 0) return;
+  ctx.save(); ctx.globalAlpha = alpha;
+  const g = ctx.createLinearGradient(x, 0, x + w, 0); g.addColorStop(0, s.bg[0]); g.addColorStop(1, s.bg[1]);
+  ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+  if (s.accent) { const a = ctx.createLinearGradient(x, 0, x + w, 0); ['#9e07ae', '#e5202f', '#f06424', '#faa51a'].forEach((c, i) => a.addColorStop(i / 3, c)); ctx.fillStyle = a; ctx.fillRect(x, y + h * 0.93, w, h * 0.07); }
+  if (showFx && T.sc >= 6) { ctx.fillStyle = _adGridPattern(); ctx.fillRect(x, y, w, h); }     // LED grid sits under the logo so the logo stays crisp
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  const im = AD_LOGOS[s.logo];
+  if (im.complete && im.naturalWidth) {
+    let lh = h * 0.72, lw = lh * im.naturalWidth / im.naturalHeight;
+    if (lw > w * 0.86) { lw = w * 0.86; lh = lw * im.naturalHeight / im.naturalWidth; }
+    ctx.drawImage(im, -lw / 2, -lh / 2, lw, lh);
+  }
+  ctx.restore();
+}
+// Light spill from each board: a fan that widens with distance and fades out (fixed look, not user-adjustable).
+const AD_SPREAD_DEG = 20, AD_REACH_M = 2.0, AD_BRIGHT = 0.54, AD_BOARD_H = 2.4, AD_SEAM_M = 3;
+function _adBoard(cx, cy, w, h, rot, off, t) {
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(rot);
+  const sc = T.sc, k0 = Math.floor(t / AD_SECS + off), n = AD_SLIDES.length, cur = AD_SLIDES[((k0 % n) + n) % n].glow;
+  // footing shadow on the stand side of the board (local -y, away from the pitch)
+  const fh = 0.7 * sc, fg = ctx.createLinearGradient(0, -h / 2, 0, -h / 2 - fh); fg.addColorStop(0, 'rgba(0,0,0,0.6)'); fg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = fg; ctx.fillRect(-w / 2, -h / 2 - fh, w, fh);
+  // angled light on the grass, pitch side (local +y): fan polygon plus a soft ellipse at each end so neighbouring boards blend
+  const reach = showFx ? AD_REACH_M * sc : 0, ang = AD_SPREAD_DEG * Math.PI / 180, k = Math.tan(ang) * reach;
+  if (showFx) {
+  ctx.save(); ctx.globalCompositeOperation = 'screen';
+  const sp = ctx.createLinearGradient(0, h / 2, 0, h / 2 + reach);
+  sp.addColorStop(0, cur + Math.round(AD_BRIGHT * 255).toString(16).padStart(2, '0')); sp.addColorStop(1, cur + '00');
+  ctx.fillStyle = sp; ctx.beginPath(); ctx.moveTo(-w / 2, h / 2); ctx.lineTo(w / 2, h / 2); ctx.lineTo(w / 2 + k, h / 2 + reach); ctx.lineTo(-w / 2 - k, h / 2 + reach); ctx.closePath(); ctx.fill();
+  for (const sg of [-1, 1]) {
+    const ex = sg * (w / 2 + k * 0.45), ey = h / 2 + reach * 0.45, rx = reach * 0.5 + k * 0.4, ry = reach * 0.62;
+    ctx.save(); ctx.translate(sg * w / 2, h / 2); ctx.rotate(sg * ang * 0.6); ctx.translate(-sg * w / 2, -h / 2);
+    ctx.translate(ex, ey); ctx.scale(rx, ry);
+    const rg = ctx.createRadialGradient(0, 0, 0, 0, 0, 1); rg.addColorStop(0, cur + Math.round(AD_BRIGHT * 0.7 * 255).toString(16).padStart(2, '0')); rg.addColorStop(1, cur + '00');
+    ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(0, 0, 1, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  }
+  ctx.restore();
+  }
+  // bezel with a highlight on its top edge
+  const bez = ctx.createLinearGradient(0, -h / 2, 0, h / 2); bez.addColorStop(0, '#4a4a58'); bez.addColorStop(0.35, '#1a1a22'); bez.addColorStop(1, '#0a0a0f');
+  ctx.fillStyle = bez; ctx.beginPath(); ctx.roundRect(-w / 2, -h / 2, w, h, Math.min(3, h * 0.08)); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fillRect(-w / 2 + 1, -h / 2, w - 2, Math.max(0.6, h * 0.02));
+  const p = Math.max(1.5, h * 0.09), x = -w / 2 + p, y = -h / 2 + p, iw = w - 2 * p, ih = h - 2 * p;
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y, iw, ih); ctx.clip();
+  const ph = t / AD_SECS + off, k1 = Math.floor(ph), f = ph - k1;
+  _adSlide(AD_SLIDES[((k1 % n) + n) % n], x, y, iw, ih, 1);
+  if (f > 1 - AD_FADE) _adSlide(AD_SLIDES[(((k1 + 1) % n) + n) % n], x, y, iw, ih, (f - (1 - AD_FADE)) / AD_FADE);
+  const seam = AD_SEAM_M * sc;                                          // module joins every 3 m
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  for (let sx = x + seam; sx < x + iw - 1; sx += seam) ctx.fillRect(sx, y, Math.max(1, DPR > 1 ? 1 : 1), ih);
+  const gl = ctx.createLinearGradient(x, y, x + iw * 0.5, y + ih); gl.addColorStop(0, 'rgba(255,255,255,0.2)'); gl.addColorStop(0.45, 'rgba(255,255,255,0)');
+  if (showFx) { ctx.fillStyle = gl; ctx.fillRect(x, y, iw, ih); }
+  ctx.restore();
+  ctx.restore();
+}
+function drawBoards(fi) {
+  if (!showBoards) return;
+  const L = T.L, Wp = T.Wp, sc = T.sc, bm = AD_BOARD_H, t = fi / BASE_FPS;
+  drawCrowdSmoke(fi);
+  const side = (n, span, place) => { const w = (span - AD_GAP_M * (n - 1)) / n; for (let i = 0; i < n; i++) place(-span / 2 + w / 2 + i * (w + AD_GAP_M), w, i); };
+  const edge = AD_BAND_IN + bm / 2;
+  side(6, L, (x, w, i) => {
+    const [tx, ty] = tc(x, Wp / 2 + edge), [bx, by] = tc(x, -(Wp / 2 + edge));
+    _adBoard(tx, ty, w * sc, bm * sc, 0, i, t);                 // top: upright
+    _adBoard(bx, by, w * sc, bm * sc, Math.PI, i + 3, t);       // bottom: inverted, facing the pitch
+  });
+  side(3, Wp, (y, w, i) => {
+    const [lx, ly] = tc(-(L / 2 + edge), y), [rx, ry] = tc(L / 2 + edge, y);
+    _adBoard(lx, ly, w * sc, bm * sc, -Math.PI / 2, i + 1, t);
+    _adBoard(rx, ry, w * sc, bm * sc, Math.PI / 2, i + 4, t);
+  });
+  drawCrowdLights(fi);                                          // flares and phone lights on top of the boards
+}
+
+// ── Crowd ─────────────────────────────────────────────────────────────────────
+// A strip of stand behind the boards on all four sides, mostly home colours, with one away block behind the right-hand goal.
+// Items: phone lights that twinkle and flash, and smoke and flares in the away end.
+// The fixed parts are drawn into the cached pitch layer; the twinkling, flares and smoke are drawn live in drawCrowdLive.
+const CROWD_IN = AD_BAND_IN + AD_BOARD_H + 0.3;
+function _rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function _rgb(c) { const m = /^#?([0-9a-f]{6})$/i.exec(c || ''); const v = m ? parseInt(m[1], 16) : 0x888888; return [v >> 16 & 255, v >> 8 & 255, v & 255]; }
+function _mix(c, o, k) { const a = _rgb(c), b = _rgb(o); return 'rgb(' + a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(',') + ')'; }
+let _crowd = null, _crowdKey = '';
+function _crowdModel() {
+  const L = T.L, Wp = T.Wp, key = [L, Wp, MARGIN].join('|');
+  if (_crowd && _crowdKey === key) return _crowd;
+  const r = _rng(20260511), M = { dots: [], phones: [], flares: [], smoke: [] };
+  const x0 = L / 2 + CROWD_IN, x1 = L / 2 + MARGIN, y0 = Wp / 2 + CROWD_IN, y1 = Wp / 2 + MARGIN;
+  // regions: [xmin,xmax,ymin,ymax, rotation so local +y faces the pitch, away?]
+  const regs = [
+    [-x1, x1, y0, y1, 0, false], [-x1, x1, -y1, -y0, Math.PI, false],
+    [-x1, -x0, -y0, y0, -Math.PI / 2, false], [x0, x1, -y0, y0, Math.PI / 2, true],
+  ];
+  const dens = 1.0;
+  for (const [xa, xb, ya, yb, rot, away] of regs) {
+    const nBlock = Math.round((xb - xa) * (yb - ya) * dens);
+    for (let i = 0; i < nBlock; i++) {
+      const x = xa + r() * (xb - xa), y = ya + r() * (yb - ya);
+      const d = rot === 0 ? y - y0 : rot === Math.PI ? -y - y0 : rot < 0 ? -x - x0 : x - x0;   // depth from the boards (0) to the back (MARGIN-CROWD_IN)
+      const u = Math.min(1, d / (MARGIN - CROWD_IN)), q = r();
+      const kind = away ? (q < 0.8 ? 0 : q < 0.9 ? 1 : 2) : (q < 0.72 ? 0 : q < 0.84 ? 1 : 2);
+      M.dots.push({ x, y, rr: 0.24 + r() * 0.14, kind, n: r(), u });
+      if (r() < 0.1) M.phones.push({ x, y, ph: r() * 6.28, sp: 1.5 + r() * 2.5, id: M.phones.length });
+    }
+    if (away) {
+      for (let i = 0; i < 14; i++) M.flares.push({ x: xa + r() * (xb - xa), y: ya + r() * (yb - ya), ph: r() * 6.28, hot: r() < 0.5 });
+      for (let i = 0; i < 7; i++) M.smoke.push({ x: xa + 0.5 + r() * (xb - xa), y: ya + r() * (yb - ya), rad: 2.2 + r() * 2.2, ph: r() * 6.28, dx: (r() - 0.5) * 0.6 });
+    }
+  }
+  M.rect = { x0, x1, y0, y1 }; _crowd = M; _crowdKey = key; return M;
+}
+function drawCrowdStatic() {
+  if (!showBoards) return;
+  const M = _crowdModel(), sc = T.sc, L = T.L, Wp = T.Wp, { x0, x1, y0, y1 } = M.rect;
+  const home = D.colors['1'] || '#4682b4', away = D.colors['2'] || '#cd5c5c';
+  // dark stand behind the dots, in the same four regions
+  const [ax, ay] = tc(-x1, y1), [bx, by] = tc(x1, -y1), [cx, cy] = tc(-x0, y0), [dx, dy] = tc(x0, -y0);
+  ctx.fillStyle = '#0c0514'; ctx.fillRect(ax, ay, bx - ax, by - ay);
+  ctx.fillStyle = '#14061f'; ctx.fillRect(ax, ay, bx - ax, cy - ay); ctx.fillRect(ax, dy, bx - ax, by - dy); ctx.fillRect(ax, cy, cx - ax, dy - cy); ctx.fillRect(dx, cy, bx - dx, dy - cy);
+  const neutral = ['#d8d8e0', '#2b2b36', '#8a8a99', '#f2f2f2'];
+  const rad = (m) => Math.max(0.9, m * sc);
+  for (const d of M.dots) {
+    const team = d.x > x0 && Math.abs(d.y) < y0 ? away : home;
+    let col = d.kind === 0 ? team : d.kind === 1 ? _mix(team, '#ffffff', 0.55) : neutral[Math.floor(d.n * neutral.length)];
+    col = _mix(col.startsWith('#') ? col : _mix(col, '#000000', 0), '#000000', 0.5 * (1 - d.u));   // darker toward the boards, lit toward the back
+    const [px, py] = tc(d.x, d.y);
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(px, py, rad(d.rr), 0, 6.2832); ctx.fill();
+  }
+  // faint tier lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
+  for (const o of [1.0, 2.0]) {
+    const yy = [y0 + o, -(y0 + o)], xx = [x0 + o, -(x0 + o)];
+    ctx.beginPath();
+    for (const y of yy) { const [p, q] = tc(-x1, y), [p2] = tc(x1, y); ctx.moveTo(p, q); ctx.lineTo(p2, q); }
+    for (const x of xx) { const [p, q] = tc(x, y0), [, q2] = tc(x, -y0); ctx.moveTo(p, q); ctx.lineTo(p, q2); }
+    ctx.stroke();
+  }
+}
+function drawCrowdSmoke(fi) {                                       // behind the boards
+  if (!showBoards) return;
+  const M = _crowdModel(), sc = T.sc, t = fi / BASE_FPS, { x0, x1, y0 } = M.rect;
+  const home = D.colors['1'] || '#4682b4', away = D.colors['2'] || '#cd5c5c';
+  // smoke and flares in the away end, clipped to the stand behind the boards
+  const [ca, cb] = tc(T.L / 2 + AD_BAND_IN, y0), [cc, cd] = tc(x1, -y0);
+  ctx.save(); ctx.beginPath(); ctx.rect(ca, cb, cc - ca, cd - cb); ctx.clip();
+  for (const s of M.smoke) {
+    const [px, py] = tc(s.x + Math.sin(t * 0.15 + s.ph) * s.dx, s.y + Math.cos(t * 0.11 + s.ph) * 0.5), r = s.rad * sc, a = 0.2 + 0.08 * Math.sin(t * 0.4 + s.ph);
+    const g = ctx.createRadialGradient(px, py, 0, px, py, r); g.addColorStop(0, 'rgba(235,150,140,' + a + ')'); g.addColorStop(1, 'rgba(235,150,140,0)');
+    ctx.fillStyle = g; ctx.fillRect(px - r, py - r, 2 * r, 2 * r);
+  }
+  ctx.restore();
+}
+function drawCrowdLights(fi) {                                      // drawn over the boards so no glow is cut off
+  if (!showBoards) return;
+  const M = _crowdModel(), sc = T.sc, t = fi / BASE_FPS;
+  ctx.save(); ctx.globalCompositeOperation = 'screen';
+  for (const f of M.flares) {
+    const [px, py] = tc(f.x, f.y), fl = 0.75 + 0.25 * Math.sin(t * 9 + f.ph) * Math.sin(t * 3.7 + f.ph * 2), r = (1.3 + (f.hot ? 0.6 : 0)) * sc * fl;
+    const g = ctx.createRadialGradient(px, py, 0, px, py, r); g.addColorStop(0, f.hot ? 'rgba(255,230,190,0.95)' : 'rgba(255,90,70,0.9)'); g.addColorStop(0.3, 'rgba(255,60,40,0.45)'); g.addColorStop(1, 'rgba(255,40,20,0)');
+    ctx.fillStyle = g; ctx.fillRect(px - r, py - r, 2 * r, 2 * r);
+  }
+  // phone lights: a steady glow that twinkles, with the odd camera flash
+  const tf = Math.floor(t * 4);
+  for (const p of M.phones) {
+    const [px, py] = tc(p.x, p.y), tw = 0.6 + 0.4 * Math.sin(t * p.sp + p.ph), h = ((p.id * 2654435761 + tf * 40503) >>> 0) % 2000 < 4;   // ~0.2% a quarter-second
+    const r = Math.max(1.4, 0.26 * sc);
+    ctx.fillStyle = 'rgba(160,210,255,' + (0.22 * tw + 0.08) + ')'; ctx.beginPath(); ctx.arc(px, py, r * 2.4, 0, 6.2832); ctx.fill();    // halo
+    ctx.fillStyle = 'rgba(235,246,255,' + (0.6 * tw + 0.4) + ')'; ctx.fillRect(px - r, py - r, 2 * r, 1.6 * r);
+    if (h) { const R = 1.6 * sc, g = ctx.createRadialGradient(px, py, 0, px, py, R); g.addColorStop(0, 'rgba(255,255,255,0.95)'); g.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = g; ctx.fillRect(px - R, py - R, 2 * R, 2 * R); }
+  }
+  ctx.restore();
+}
+
+// The pitch (grass, logo, texture, lines, nets) never changes between frames, so it is drawn once to an offscreen
+// layer and blitted. The layer is redrawn only when its key changes: size, transform, kit/grass colours, export layout, logo/texture loading.
+let _pitchLayer = null, _pitchKey = '';
 function drawPitch(W, H) {
+  const key = [canvas.width, canvas.height, DPR, T.ox, T.oy, T.sc, T.top, T.head, T.foot, T.barW, T.L, T.Wp,
+    _isExporting() ? 1 : 0, logoReady() ? 1 : 0, texReady() ? 1 : 0, tileCss(0), tileCss(1), BAR_COLOUR, showBoards ? 1 : 0, MARGIN, D.colors['1'], D.colors['2']].join('|');
+  if (!_pitchLayer) _pitchLayer = document.createElement('canvas');
+  if (key !== _pitchKey || _pitchLayer.width !== canvas.width || _pitchLayer.height !== canvas.height) {
+    _pitchLayer.width = canvas.width; _pitchLayer.height = canvas.height;
+    const main = ctx;
+    ctx = _pitchLayer.getContext('2d');
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    try { drawPitchNow(W, H); } finally { ctx = main; }
+    _pitchKey = key;
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(_pitchLayer, 0, 0);
+  ctx.restore();
+}
+function drawPitchNow(W, H) {
   const L = T.L, Wp = T.Wp, sc = T.sc;
 
   if (_isExporting()) {                                         // header and footer bars (saved clips only; on screen the page background shows through)
@@ -374,6 +603,8 @@ function drawPitch(W, H) {
     ctx.fillRect(Math.floor(T.ox), Math.floor(T.top), Math.ceil(T.barW), T.head);
     ctx.fillRect(Math.floor(T.ox), Math.floor(T.oy + (T.Wp + 2 * MARGIN) * T.sc), Math.ceil(T.barW), T.foot ? T.foot + 1 : 0);
   }
+
+  drawCrowdStatic();                                            // stand and crowd behind the boards (cached with the pitch)
 
   // Vertical grass stripes: subtle two-tone, pixel-snapped so no seams show between stripes
   const cw = L / PITCH_COLS, rh = Wp / PITCH_ROWS;
@@ -995,8 +1226,9 @@ let   dockPref    = 'side';
 try { if (localStorage.getItem('opta-dock') === 'below') dockPref = 'below'; } catch (e) { /* storage unavailable */ }
 const DOCK_W_MIN = 360, DOCK_W_MAX = 900;
 
+const NARROW = window.matchMedia('(max-width: 900px)');      // phones / small tablets: one column, tables always below the pitch
 function _applyDock() {
-  dockSide = _hasTables && !hasVod && dockPref === 'side';
+  dockSide = _hasTables && !hasVod && dockPref === 'side' && !NARROW.matches;
   const home = document.getElementById('gif-panel');
   if (dockSide) rightColEl.appendChild(bottomPanelsEl);
   else home.parentNode.insertBefore(bottomPanelsEl, home);
@@ -1010,6 +1242,7 @@ function _applyDock() {
   _setRightCol();
   window.dispatchEvent(new Event('resize'));          // the pitch canvas re-fits its column
 }
+NARROW.addEventListener('change', () => { _applyDock(); resizeCanvas(); });
 for (const [id, pref] of [['dock-side', 'side'], ['dock-below', 'below']]) {
   document.getElementById(id).addEventListener('click', () => {
     dockPref = pref;
@@ -2528,7 +2761,7 @@ function updateMeta(fi) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Live scoreboard (2D canvas, so it is part of GIF / video exports)
+//  Live scoreboard (2D canvas, so it is part of video exports)
 // ─────────────────────────────────────────────────────────────────────────────
 // Score at any moment = goal events up to the current frame. Own goals (qualifier 28) are credited to the
 // opposing side; if that disagrees with the final score in matchstats while the other reading agrees, the
@@ -2669,7 +2902,7 @@ function ballTracked(fi) {
 }
 
 // Match title in the footer bar under the pitch: teams | competition | venue | date (whatever is known).
-// Drawn on the canvas so it is part of image, GIF and video exports. The font shrinks to fit narrow pictures.
+// Drawn on the canvas so it is part of image and video exports. The font shrinks to fit narrow pictures.
 // First frame after `fi` where the ball has tracked coordinates in any source (-1 if none).
 function nextBallFrame(fi) {
   if (!_ballEntity) return -1;
@@ -2704,13 +2937,13 @@ skipBtn.addEventListener('click', () => {
   if (target >= 0) render(target);
 });
 
-// True while a GIF or video is being made (the export buttons are disabled then).
+// True while a video is being made (the export buttons are disabled then).
 function _isExporting() {
-  const g = document.getElementById('btn-gen-gif'), v = document.getElementById('btn-gen-vid');
-  return !!(g && v && (g.disabled || v.disabled));
+  const v = document.getElementById('btn-gen-vid');
+  return !!(v && v.disabled);
 }
 
-// The match title is in the page header on screen; the footer bar is drawn only while a GIF or video is being made.
+// The match title is in the page header on screen; the footer bar is drawn only while a video is being made.
 function drawMatchFooter() {
   if (!_isExporting()) return;
   const L = D.lineup || {};
@@ -3413,6 +3646,7 @@ function render(fi) {
     ctx.clip();
   }
   drawPitch(W, H);
+  drawBoards(fi);
   if (roundPitch) ctx.restore();
   if (showEvents) drawEvent(fi);
   drawDefCompactness(fi);
@@ -3460,7 +3694,7 @@ function startPlayback() {
   scheduleNext();
 }
 
-// Syncs GIF/Video export time inputs to the current frame position.
+// Syncs Video export time inputs to the current frame position.
 // Called on pause; user edits set _gifTimeUserEdited to suppress auto-sync.
 let _gifTimeUserEdited = false;
 function _syncGifTimes() {
@@ -3846,14 +4080,19 @@ function resizeCanvas() {
   let W = wrap.clientWidth, H = wrap.clientHeight;
   // 2D: the pane is only as tall as the pitch picture (no empty band below it), so the controls and tables sit directly under/beside it
   const mc = document.getElementById('main-content');
-  if (is3D || !D || !D.pitch) { if (mc.style.height) { mc.style.height = ''; H = wrap.clientHeight; } }
-  else {
+  const narrow = NARROW.matches, pcol = document.getElementById('pitch-col');
+  const box = narrow ? pcol : mc;                                   // narrow: the pitch column has the height and the right column flows below it
+  if (narrow) mc.style.height = ''; else pcol.style.height = '';
+  if (is3D || !D || !D.pitch) {
+    if (narrow) { const w3 = Math.round(Math.max(280, W * 0.75)); if (Math.abs(w3 - H) > 2) { box.style.height = w3 + 'px'; H = wrap.clientHeight; } }
+    else if (mc.style.height) { mc.style.height = ''; H = wrap.clientHeight; }
+  } else {
     const dataW = D.pitch.L + 2 * MARGIN, dataH = D.pitch.W + 2 * MARGIN;
     const head = Math.round(Math.min(68, Math.max(66, H * 0.1)));
     const natural = Math.ceil(head + dataH * (W / dataW) + (_isExporting() ? 28 : 0));
     const maxH = Math.round(Math.min(780, Math.max(600, window.innerHeight * 0.76)));
     const want = Math.min(natural, maxH);
-    if (Math.abs(want - H) > 2) { mc.style.height = want + 'px'; H = wrap.clientHeight; }
+    if (Math.abs(want - H) > 2) { box.style.height = want + 'px'; H = wrap.clientHeight; }
   }
   DPR = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
   canvas.width  = Math.round(W * DPR);
@@ -3871,6 +4110,18 @@ ro.observe(document.getElementById('pitch-wrap'));
 
 buildSourceToggles();
 buildAppearanceControls();
+(function () {                                                       // Appearance > "Advertising boards": on adds board space round the pitch, off gives it back to the pitch
+  const fxb = document.getElementById('btn-fx');
+  if (fxb) {
+    const sync = () => { fxb.classList.toggle('on', showBoards); fxb.setAttribute('aria-pressed', showBoards ? 'true' : 'false'); };
+    sync();
+    fxb.addEventListener('click', () => {
+      showBoards = !showBoards; MARGIN = showBoards ? MARGIN_BOARDS : MARGIN_PLAIN;
+      try { localStorage.setItem('opta-fx2', showBoards ? 'on' : 'off'); } catch (e) { /* storage unavailable */ }
+      sync(); _pitchKey = ''; resizeCanvas();
+    });
+  }
+})();
 
 // Setup Overlays collapsible section
 const overlaysToggle = document.getElementById('overlays-toggle');
@@ -3893,6 +4144,69 @@ document.getElementById('btn-3d').addEventListener('click', () => {
   btn.classList.toggle('btn-primary',   is3D);
   btn.classList.toggle('btn-secondary', !is3D);
   if (is3D) enter3D(); else exit3D();
+});
+
+// ── Keyboard shortcuts ────────────────────────────────────────────────────────
+// Space play/pause · ←/→ one frame (Shift: one second) · [ / ] previous / next key moment · Home/End start/end · ? help.
+// Key moments are the goals and cards on the play bar (landing one second before, like clicking them) plus each period's first frame.
+function _keyMoments() {
+  const set = new Set(_seekItems.map(it => _oneSecondBefore(it.fi)));
+  for (let i = 0; i < TOTAL_FRAMES; i++) if (i === 0 || D.meta.period[i] !== D.meta.period[i - 1]) set.add(i);
+  return [...set].sort((a, b) => a - b);
+}
+function _jumpKeyMoment(dir) {
+  const km = _keyMoments(), cur = currentFi;
+  const target = dir > 0 ? km.find(f => f > cur) : [...km].reverse().find(f => f < cur - 1);   // -1: a jump back from just after a moment goes to the one before it
+  if (target === undefined) return;
+  stopPlayback(); render(target);
+}
+const _helpEl = document.createElement('div');
+_helpEl.id = 'kbd-help'; _helpEl.hidden = true; _helpEl.setAttribute('role', 'dialog'); _helpEl.setAttribute('aria-label', 'Keyboard shortcuts');
+const _kc = (...k) => k.map(x => '<kbd>' + x + '</kbd>').join('');
+_helpEl.innerHTML = '<h4>Keyboard shortcuts</h4>' + [
+  ['Play / pause', _kc('Space')], ['Step one frame', _kc('\u2190', '\u2192')], ['Step one second', _kc('Shift', '\u2190', '\u2192')],
+  ['Previous / next key moment', _kc('[', ']')], ['Start / end of match', _kc('Home', 'End')], ['Show or hide this list', _kc('?')],
+].map(r => '<div class="kr"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('');
+document.body.appendChild(_helpEl);
+const _kbdBtn = document.getElementById('btn-kbd'), _kbdWrap = document.getElementById('kbd-wrap');
+let _kbdPinned = false;                                              // opened by click (or "?"): stays until Esc / click away; hover alone just peeks
+function _kbdShow(on, pin) {
+  if (on) {
+    const r = _kbdBtn.getBoundingClientRect();
+    _helpEl.hidden = false;
+    _helpEl.style.top = (r.bottom + 6) + 'px';
+    _helpEl.style.left = Math.max(8, Math.min(window.innerWidth - _helpEl.offsetWidth - 8, r.right - _helpEl.offsetWidth)) + 'px';
+    if (pin) _kbdPinned = true;
+  } else { _helpEl.hidden = true; _kbdPinned = false; }
+  _kbdBtn.setAttribute('aria-expanded', String(!_helpEl.hidden));
+  _kbdBtn.classList.toggle('on', !_helpEl.hidden);
+}
+_kbdBtn.addEventListener('click', (e) => { e.stopPropagation(); _kbdShow(_helpEl.hidden || !_kbdPinned, true); });
+_kbdWrap.addEventListener('mouseenter', () => { if (_helpEl.hidden) _kbdShow(true, false); });
+const _kbdLeave = () => { if (!_kbdPinned) setTimeout(() => { if (!_kbdPinned && !_kbdWrap.matches(':hover') && !_helpEl.matches(':hover')) _kbdShow(false); }, 120); };
+_kbdWrap.addEventListener('mouseleave', _kbdLeave);
+_helpEl.addEventListener('mouseleave', _kbdLeave);
+document.addEventListener('click', (e) => { if (!_helpEl.hidden && !_helpEl.contains(e.target)) _kbdShow(false); });
+btnPlay.title = 'Play / pause (Space) \u00b7 see Shortcuts in the top bar';
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+  const t = e.target, tag = t && t.tagName;
+  if (tag === 'INPUT' && t.type !== 'range' && t.type !== 'checkbox' || tag === 'SELECT' || tag === 'TEXTAREA' || (t && t.isContentEditable)) return;   // typing: leave every key alone
+  if (e.key === 'Escape') { _kbdShow(false); return; }
+  if (document.body.classList.contains('export-open') || document.body.classList.contains('exporting')) return;
+  const k = e.key, onSlider = tag === 'INPUT' && t.type === 'range';
+  if (k === '?') { _kbdShow(_helpEl.hidden || !_kbdPinned, true); e.preventDefault(); return; }
+  if (is3D && (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown')) return;   // 3D uses the arrows to pan
+  if (k === ' ' || k === 'Spacebar') {
+    if (tag === 'BUTTON' || tag === 'A') return;                      // a focused button keeps its own Space action
+    togglePlay(); e.preventDefault();
+  } else if (k === 'ArrowLeft' || k === 'ArrowRight') {
+    if (onSlider && !e.shiftKey) return;                              // the range input already steps one frame itself
+    const d = (k === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? BASE_FPS : 1);
+    stopPlayback(); render(Math.max(0, Math.min(TOTAL_FRAMES - 1, currentFi + d))); e.preventDefault();
+  } else if (k === '[' || k === ']') { _jumpKeyMoment(k === ']' ? 1 : -1); e.preventDefault(); }
+  else if (k === 'Home') { stopPlayback(); render(0); e.preventDefault(); }
+  else if (k === 'End') { stopPlayback(); render(TOTAL_FRAMES - 1); e.preventDefault(); }
 });
 
 // Arrow-key panning in 3D mode (left/right and forward/back along the ground plane)
@@ -4284,6 +4598,7 @@ function _closeAllBottomPanels() {
   });
 })();
 
+let _exportClips = null;        // set by the export code below: (clips, format, onStatus) => Promise
 // ── Events panel ─────────────────────────────────────────────────────────────
 (function () {
   if (!D.events || D.events.length === 0) return;
@@ -4296,6 +4611,8 @@ function _closeAllBottomPanels() {
   const tbody      = document.getElementById('events-tbody');
   let panelOpen    = false;
   let activeRow    = null;
+  const selected   = new Set();      // ticked events (D.events objects), kept across filtering
+  let shown        = [];
 
   wrap.style.display = 'block';
   countBadge.textContent = '(' + D.events.length + ')';
@@ -4382,6 +4699,8 @@ function _closeAllBottomPanels() {
 
     tbody.innerHTML = '';
     activeRow = null;
+    shown = filtered;
+    syncSelection();
 
     filtered.forEach(ev => {
       const pStart  = D.periodStartTimes[String(ev.p)] || 0;
@@ -4398,8 +4717,11 @@ function _closeAllBottomPanels() {
       const tr = document.createElement('tr');
       const eventIdStr = ev.eid !== null && ev.eid !== undefined ? ev.eid : '—';
       const evJerseyStr = ev.jn !== null && ev.jn !== undefined ? ev.jn : '—';
-      tr.innerHTML = '<td>P' + ev.p + '</td><td>' + mm + ':' + ss + '</td><td class="ev-cell"><img class="ev-ic" alt="" src="' + eventIconURL(ev) + '">' + ev.t + '</td><td>' + eventIdStr + '</td><td>' + (ev.ti !== null && ev.ti !== undefined ? '<span class="pl">' + _teamDot(ev.g) + teamStr + '</span>' : teamStr) + '</td><td>' + playerStr + '</td><td>' + (ev.ti !== null && ev.ti !== undefined && ev.jn !== null && ev.jn !== undefined ? _disc(ev.g, ev.jn) : evJerseyStr) + '</td><td>' + qualifiersStr + '</td>';
+      tr.innerHTML = '<td class="ev-sel"><input type="checkbox" aria-label="Select event for clip export"' + (selected.has(ev) ? ' checked' : '') + '></td><td>P' + ev.p + '</td><td>' + mm + ':' + ss + '</td><td class="ev-cell"><img class="ev-ic" alt="" src="' + eventIconURL(ev) + '">' + ev.t + '</td><td>' + eventIdStr + '</td><td>' + (ev.ti !== null && ev.ti !== undefined ? '<span class="pl">' + _teamDot(ev.g) + teamStr + '</span>' : teamStr) + '</td><td>' + playerStr + '</td><td>' + (ev.ti !== null && ev.ti !== undefined && ev.jn !== null && ev.jn !== undefined ? _disc(ev.g, ev.jn) : evJerseyStr) + '</td><td>' + qualifiersStr + '</td>';
       if (ev.ti !== null && ev.ti !== undefined) tr.firstElementChild.style.cssText += ';' + _edgeBg(ev.g);
+      const cb = tr.querySelector('input');
+      cb.addEventListener('click', e => e.stopPropagation());
+      cb.addEventListener('change', () => { if (cb.checked) selected.add(ev); else selected.delete(ev); syncSelection(); });
       tr.addEventListener('click', () => {
         stopPlayback();
         render(ev.fi);
@@ -4410,6 +4732,41 @@ function _closeAllBottomPanels() {
       tbody.appendChild(tr);
     });
   }
+
+  // ── Clips from events: tick events, export one clip each (one second before the event) ──
+  const selAll = document.getElementById('ev-sel-all'), selN = document.getElementById('ev-clips-n');
+  const btnClips = document.getElementById('btn-ev-clips'), clipStatus = document.getElementById('ev-clips-status');
+  function syncSelection() {
+    selN.textContent = selected.size + ' selected';
+    btnClips.disabled = selected.size === 0 || !_exportClips;
+    const n = shown.filter(e => selected.has(e)).length;
+    selAll.checked = shown.length > 0 && n === shown.length;
+    selAll.indeterminate = n > 0 && n < shown.length;
+  }
+  selAll.addEventListener('change', () => {
+    for (const e of shown) { if (selAll.checked) selected.add(e); else selected.delete(e); }
+    for (const cb of tbody.querySelectorAll('input[type=checkbox]')) cb.checked = selAll.checked;
+    syncSelection();
+  });
+  btnClips.addEventListener('click', async () => {
+    if (!_exportClips || !selected.size || btnClips.disabled) return;
+    const len = parseInt(document.getElementById('ev-clip-len').value, 10) || 10;
+    const clips = [...selected].sort((a, b) => a.fi - b.fi).map((ev, i) => {
+      const startFi = _oneSecondBefore(ev.fi);
+      let endFi = Math.min(TOTAL_FRAMES - 1, startFi + len * BASE_FPS);
+      while (endFi > startFi && D.meta.period[endFi] !== D.meta.period[startFi]) endFi--;   // never run into the next period
+      const rel = Math.max(0, D.meta.time[ev.fi] - (D.periodStartTimes[String(ev.p)] || 0));
+      const tm = String(Math.floor(rel / 60)).padStart(2, '0') + 'm' + String(Math.floor(rel % 60)).padStart(2, '0') + 's';
+      const nm = String(ev.t).replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24);
+      return { startFi, endFi, name: 'clip' + String(i + 1).padStart(2, '0') + '_P' + ev.p + '_' + tm + '_' + nm + (ev.eid != null ? '_' + String(ev.eid).replace(/\D/g, '') : '') };
+    }).filter(c => c.endFi > c.startFi);
+    if (!clips.length) { clipStatus.textContent = 'Nothing to export.'; return; }
+    btnClips.disabled = true;
+    try { await _exportClips(clips, m => { clipStatus.textContent = m; }, clipStatus); }
+    catch (err) { clipStatus.textContent = 'Export failed: ' + (err && err.message || err); }
+    syncSelection();
+  });
+  syncSelection();
 
   btnToggle.addEventListener('click', () => {
     const isOpen = body.style.display === 'block';
@@ -4430,13 +4787,12 @@ function _closeAllBottomPanels() {
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  GIF + Video Export
+//  Video Export
 // ─────────────────────────────────────────────────────────────────────────────
 (function () {
   const statusEl  = document.getElementById('gif-status');
   const barWrap   = document.getElementById('gif-progress-bar-wrap');
   const bar       = document.getElementById('gif-progress-bar');
-  const btnGen    = document.getElementById('btn-gen-gif');
   const btnVid    = document.getElementById('btn-gen-vid');
   const btnSync   = document.getElementById('btn-gif-sync');
 
@@ -4446,18 +4802,19 @@ function _closeAllBottomPanels() {
   // that is started from code long after the click that began the export, so a "Save" link is always shown
   // as well; clicking it is a user action and always works. The file URL is kept until the next export.
   let lastUrl = null;
-  function offerDownload(blob, filename, message) {
+  function offerDownload(blob, filename, message, target) {
     if (lastUrl) URL.revokeObjectURL(lastUrl);
     const url = lastUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = filename;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);          // automatic attempt
-    if (!statusEl) return;
+    const out = target || statusEl;
+    if (!out) return;
     const link = document.createElement('a');
     link.href = url; link.download = filename; link.textContent = 'Save ' + filename;
     link.style.cssText = 'color:#FAA51A;text-decoration:underline;margin-left:8px';
-    statusEl.textContent = message + ' If nothing was saved, click: ';
-    statusEl.appendChild(link);
+    out.textContent = message + ' If nothing was saved, click: ';
+    out.appendChild(link);
   }
   function setProgress(p) {
     if (!barWrap || !bar) return;
@@ -4465,34 +4822,7 @@ function _closeAllBottomPanels() {
     bar.style.width = Math.round(p * 100) + '%';
   }
 
-  function loadGifJs(cb) {
-    if (window.GIF && window._gifWorkerUrl) { cb(); return; }
-    setStatus('Loading GIF encoder…');
-    const s = document.createElement('script');
-    s.src = VENDOR.gif;
-    s.onerror = () => setStatus('Failed to load GIF encoder. Could not load gif.js.');
-    s.onload = () => {
-      // Fetch worker script and wrap in a blob: URL so it loads same-origin,
-      // bypassing the cross-origin restriction that causes encoding to stall at 0%.
-      fetch(VENDOR.gifWorker)
-        .then(r => r.text())
-        .then(text => {
-          const blob = new Blob([text], { type: 'application/javascript' });
-          window._gifWorkerUrl = URL.createObjectURL(blob);
-          setStatus('');
-          cb();
-        })
-        .catch(() => {
-          // Fallback to direct URL if fetch fails
-          window._gifWorkerUrl = VENDOR.gifWorker;
-          setStatus('');
-          cb();
-        });
-    };
-    document.head.appendChild(s);
-  }
-
-  if (!btnGen) return;
+  if (!btnVid) return;
 
   // Mark user-edited when any time field changes; ↺ button resets and resyncs
   ['gif-period','gif-start-min','gif-start-sec','gif-end-min','gif-end-sec'].forEach(id => {
@@ -4514,9 +4844,8 @@ function _closeAllBottomPanels() {
     const endMin    = parseInt(document.getElementById('gif-end-min').value,    10) || 0;
     const endSec    = parseInt(document.getElementById('gif-end-sec').value,    10) || 5;
     const fps       = parseInt(document.getElementById('gif-fps').value,        10) || 10;
-    const scale     = parseFloat(document.getElementById('gif-scale').value)        || 0.5;
     const speedMult = parseFloat(document.getElementById('vid-speed').value)        || 1;
-    return { period, startMin, startSec, endMin, endSec, fps, scale, speedMult };
+    return { period, startMin, startSec, endMin, endSec, fps, speedMult };
   }
 
   // ── Video (WebM via MediaRecorder) ─────────────────────────────────────────
@@ -4535,7 +4864,7 @@ function _closeAllBottomPanels() {
       // captureStream(fps) drives timestamps from the wall clock so the encoder
       // produces a correctly-timed video; requestFrame() hints encourage capture
       // immediately after each render rather than between renders.
-      btnVid.disabled = true; btnGen.disabled = true;   // export mode: footer bar reserved, so size the canvas and lay out before measuring the crop
+      btnVid.disabled = true;   // export mode: footer bar reserved, so size the canvas and lay out before measuring the crop
       resizeCanvas();
       const pr = pitchRect();
       const cropCanvas = document.createElement('canvas');
@@ -4553,7 +4882,7 @@ function _closeAllBottomPanels() {
         offerDownload(blob, 'animation_P' + period + '_' + startMin + 'm' + startSec + 's_' + speedMult + 'x.' + ext,
           'Done! Video ready (' + mimeType.split(';')[0] + ', ' + speedMult + '×, ' + pr.w + '×' + pr.h + ').');
         setProgress(0);
-        btnVid.disabled = false; btnGen.disabled = false;
+        btnVid.disabled = false;
         resizeCanvas();
       };
 
@@ -4572,7 +4901,7 @@ function _closeAllBottomPanels() {
       if (track.requestFrame) track.requestFrame();
 
       recorder.start();
-      btnVid.disabled = true; btnGen.disabled = true;
+      btnVid.disabled = true;
       setStatus('Recording frame 1 / ' + total + '…');
       setProgress(0);
 
@@ -4597,82 +4926,74 @@ function _closeAllBottomPanels() {
     });
   }
 
-  // ── GIF button ─────────────────────────────────────────────────────────────
-  btnGen.addEventListener('click', () => {
-    loadGifJs(() => {
-      const { period, startMin, startSec, endMin, endSec, fps, scale } = readTimes();
+  // ── Batch export for "Clips from events": one video per clip, bundled in a single .zip ──
+  const _crcTable = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  const _crc32 = u8 => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = _crcTable[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  function _zipStore(files) {                                         // files: [{name, data: Uint8Array}] -> Blob (no compression: video is already compressed)
+    const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+    for (const f of files) {
+      const nm = enc.encode(f.name), crc = _crc32(f.data), sz = f.data.length;
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint32(14, crc, true);
+      lh.setUint32(18, sz, true); lh.setUint32(22, sz, true); lh.setUint16(26, nm.length, true);
+      parts.push(lh.buffer, nm, f.data);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint32(16, crc, true);
+      ch.setUint32(20, sz, true); ch.setUint32(24, sz, true); ch.setUint16(28, nm.length, true); ch.setUint32(42, off, true);
+      central.push(ch.buffer, nm);
+      off += 30 + nm.length + sz;
+    }
+    const csz = central.reduce((a, b) => a + b.byteLength, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, csz, true); end.setUint32(16, off, true);
+    return new Blob([...parts, ...central, end.buffer], { type: 'application/zip' });
+  }
+  const _tick = () => new Promise(r => setTimeout(r, 0));
+  const _u8 = async blob => new Uint8Array(await blob.arrayBuffer());
 
-      const startFi = findFrameByTime(period, startMin, startSec);
-      const endFi   = findFrameByTime(period, endMin,   endSec);
-      if (endFi <= startFi) { setStatus('End time must be after start time.'); return; }
-
-      const step  = Math.max(1, Math.round(BASE_FPS / fps * speedMult));
-      const delay = Math.round(1000 / fps);
-      // Crop to pitch area (no black bars), then apply the user's scale factor
-      btnGen.disabled = true;   // export mode: footer bar reserved, so size the canvas and lay out before measuring the crop
-      resizeCanvas();
-      const pr = pitchRect();
-      const W  = Math.max(1, Math.round(pr.w * scale));
-      const H  = Math.max(1, Math.round(pr.h * scale));
-
-      // Offscreen canvas for downscaling
-      const tmp    = document.createElement('canvas');
-      tmp.width    = W; tmp.height = H;
-      const tmpCtx = tmp.getContext('2d');
-
-      const gif = new GIF({
-        workers:      2,
-        quality:      10,
-        width:        W,
-        height:       H,
-        workerScript: window._gifWorkerUrl,
-      });
-
-      // Collect frame indices to capture
-      const frames = [];
-      for (let fi = startFi; fi <= endFi; fi += step) frames.push(fi);
-      const total = frames.length;
-
-      setStatus('Capturing frame 0 / ' + total + '…');
-      setProgress(0);
-      btnGen.disabled = true;
-
-      // Async frame capture — yields to event loop between frames so UI stays responsive
-      let idx = 0;
-      function captureNext() {
-        if (idx >= frames.length) {
-          setStatus('Encoding GIF (' + total + ' frames)…');
-          gif.render();
-          return;
+  _exportClips = async (clips, say, target) => {
+    const { fps, speedMult } = readTimes();
+    if (!window.MediaRecorder) throw new Error('Video recording is not supported in this browser.');
+    const step = Math.max(1, Math.round(BASE_FPS / fps * speedMult)), delay = Math.round(1000 / fps);
+    btnVid.disabled = true;     // export layout (header/footer bars), as for a single clip
+    stopPlayback(); resizeCanvas();
+    const pr = pitchRect();
+    const W = pr.w, H = pr.h;
+    const tmp = document.createElement('canvas'); tmp.width = W; tmp.height = H;
+    const tctx = tmp.getContext('2d');
+    const blit = () => { tctx.clearRect(0, 0, W, H); tctx.drawImage(canvas, pr.x * DPR, pr.y * DPR, pr.w * DPR, pr.h * DPR, 0, 0, W, H); };
+    const mime = ['video/webm;codecs=vp9', 'video/webm', 'video/mp4'].find(t => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+    const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
+    const files = [], back = currentFi;
+    try {
+      for (let c = 0; c < clips.length; c++) {
+        const clip = clips[c], frames = [];
+        for (let fi = clip.startFi; fi <= clip.endFi; fi += step) frames.push(fi);
+        const tag = 'Clip ' + (c + 1) + ' / ' + clips.length + ': ';
+        let blob;
+        const stream = tmp.captureStream(fps), track = stream.getVideoTracks()[0];
+        const rec = new MediaRecorder(stream, { mimeType: mime }), chunks = [];
+        rec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+        const done = new Promise(res => { rec.onstop = res; });
+        render(frames[0]); blit(); if (track.requestFrame) track.requestFrame();
+        rec.start();
+        for (let i = 0; i < frames.length; i++) {
+          render(frames[i]); blit(); if (track.requestFrame) track.requestFrame();
+          say(tag + 'recording ' + (i + 1) + ' / ' + frames.length);
+          await new Promise(r => setTimeout(r, delay));
         }
-        stopPlayback();
-        render(frames[idx]);
-        tmpCtx.clearRect(0, 0, W, H);
-        // Blit only the pitch region from the main canvas, scaled to output size
-        tmpCtx.drawImage(canvas, pr.x * DPR, pr.y * DPR, pr.w * DPR, pr.h * DPR, 0, 0, W, H);
-        gif.addFrame(tmpCtx, { copy: true, delay });
-        idx++;
-        setStatus('Capturing frame ' + idx + ' / ' + total);
-        setProgress(idx / total * 0.5);  // first 50% = capture phase
-        setTimeout(captureNext, 0);
+        await new Promise(r => setTimeout(r, delay * 4));
+        rec.stop(); await done;
+        blob = new Blob(chunks, { type: mime });
+        files.push({ name: clip.name + '.' + ext, data: await _u8(blob), blob });
       }
-
-      gif.on('progress', p => {
-        setStatus('Encoding: ' + Math.round(p * 100) + '%');
-        setProgress(0.5 + p * 0.5);
-      });
-
-      gif.on('finished', blob => {
-        offerDownload(blob, 'animation_P' + period + '_' + startMin + 'm' + startSec + 's.gif',
-          'Done! ' + total + ' frames, ' + W + '×' + H + 'px.');
-        setProgress(0);
-        btnGen.disabled = false;
-        resizeCanvas();  // back to the on-screen layout and restore current frame
-      });
-
-      captureNext();
-    });
-  });
+    } finally {
+      btnVid.disabled = false;
+      resizeCanvas(); render(back);
+    }
+    if (files.length === 1) offerDownload(files[0].blob, files[0].name, 'Done! 1 clip exported.', target);
+    else offerDownload(_zipStore(files), 'event_clips_' + files.length + '.zip', 'Done! ' + files.length + ' clips in one zip.', target);
+  };
 
   // Initialise inputs to the current playback position on load
   _syncGifTimes();

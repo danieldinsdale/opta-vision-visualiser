@@ -15,13 +15,16 @@ const els = {
 };
 
 // Sidebar show/hide
-function setSidebar(open) {
+const narrowScreen = window.matchMedia ? window.matchMedia('(max-width: 900px)') : { matches: false };
+function setSidebar(open, quiet) {
   document.body.classList.toggle('side-collapsed', !open);
   $('side-open').hidden = open;
   $('side-close').setAttribute('aria-expanded', String(open));
   $('side-open').setAttribute('aria-expanded', String(open));
-  (open ? $('side-close') : $('side-open')).focus();
+  if (!quiet) (open ? $('side-close') : $('side-open')).focus();
 }
+if (narrowScreen.matches) setSidebar(false, true);                  // phones/tablets start with the drawer closed, over the "Choose a file" start screen
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && narrowScreen.matches && !document.body.classList.contains('side-collapsed')) setSidebar(false); });
 $('side-close').addEventListener('click', () => setSidebar(false));
 $('side-open').addEventListener('click', () => setSidebar(true));
 
@@ -79,6 +82,7 @@ async function loadMatch(inputs) {
     window.OPTA_PAYLOAD = payload;                 // read by the animation frame (same origin)
     els.frame.src = `animation/frame.html?load=${Date.now()}`;
     els.frame.hidden = false;
+    if (narrowScreen.matches) setSidebar(false, true);                // give the match the whole screen
     els.empty.hidden = true;
     setWarnings(warnings);
     setStatus('');
@@ -298,6 +302,7 @@ function setMode(mode) {
 const emptyChoose = $('empty-choose');
 emptyChoose.addEventListener('click', () => {
   const input = !els.pkgPanel.hidden ? $('f-package') : !els.localPanel.hidden ? $('f-own') : null;
+  if (narrowScreen.matches) setSidebar(true, true);               // the drawer holds the Load data button
   if (input) input.click();
 });
 els.modePkg.addEventListener('click', () => setMode('pkg'));
