@@ -300,7 +300,12 @@ let T = {};
 // ─────────────────────────────────────────────────────────────────────────────
 //  Coordinate helpers
 // ─────────────────────────────────────────────────────────────────────────────
-const MARGIN = 2.3;           // metres around the pitch inside the picture (the goal nets are 2 m deep, so the grass must reach past them)
+const MARGIN_PLAIN = 2.3;     // metres around the pitch inside the picture (the goal nets are 2 m deep, so the grass must reach past them)
+const MARGIN_BOARDS = 8.0;    // with boards and crowd: grass run-off, a small gap, the 2.4 m board band, then a strip of stand with the crowd
+let showBoards = false;                                              // the Effects button: boards, crowd and light; off = the plain pitch
+try { if (localStorage.getItem('opta-fx2') === 'on') showBoards = true; } catch (e) { /* storage unavailable */ }
+const showFx = true;
+let MARGIN = showBoards ? MARGIN_BOARDS : MARGIN_PLAIN;
 const GRASS_RUNOFF = 2.2;     // grass beyond the touchlines/goal lines (metres): beyond the net depth so the whole net sits on grass; stays below MARGIN so a thin dark rim remains
 const BAR_COLOUR = '#14061f'; // header (scoreboard) and footer (match title) bars: the page colour, so the scoreboard floats on the page
 const GOAL_W = 7.32, GOAL_NET_D = 2.0, NET_CELL = 0.3;   // goal mouth width, net depth behind the line (metres); NET_CELL is the 3D net's mesh size
@@ -366,12 +371,216 @@ function texPattern(g, L, x0, y0, k) {
 }
 const tileCss = (k) => '#' + tileHex(k).toString(16).padStart(6, '0');
 
+// ── Advertising boards ────────────────────────────────────────────────────────
+// LED perimeter boards round the pitch, drawn on the canvas so saved clips have them too. Shown "folded out": the top boards read
+// upright, the bottom ones are inverted, and the end boards turn 90 degrees, so every board's logo faces the pitch. Each board runs a
+// slide show keyed to the match clock (it stops when paused) and the boards are offset from one another.
+const AD_BAND_IN = GRASS_RUNOFF + 0.2, AD_GAP_M = 0.25, AD_SECS = 6, AD_FADE = 0.12;
+const AD_LOGOS = {};
+for (const [k, f] of Object.entries({
+  vw: 'opta-vision-logo-white.svg', vb: 'boards/opta-vision-dark.svg', sw: 'boards/stats-perform-white.svg',
+  sb: 'boards/stats-perform-dark.svg', aw: 'boards/opta-ai-white.svg', jw: 'boards/opta-joe-white.png',
+})) { const im = new Image(); im.onload = () => { if (typeof currentFi !== 'undefined') render(currentFi); }; im.src = '../assets/' + f; AD_LOGOS[k] = im; }
+const AD_SLIDES = [
+  { bg: ['#14061f', '#3F1568'], logo: 'vw', glow: '#6a2fb0' },
+  { bg: ['#3F1568', '#9e07ae'], logo: 'sw', glow: '#9e07ae' },
+  { bg: ['#14061f', '#14061f'], logo: 'aw', glow: '#3F1568', accent: true },
+  { bg: ['#ffffff', '#ffffff'], logo: 'sb', glow: '#b9aed6' },
+  { bg: ['#FAA51A', '#F06424'], logo: 'vb', glow: '#F06424' },
+  { bg: ['#14061f', '#14061f'], logo: 'jw', glow: '#3F1568' },
+  { bg: ['#ffffff', '#ffffff'], logo: 'vb', glow: '#b9aed6' },
+  { bg: ['#2a1048', '#14061f'], logo: 'sw', glow: '#3F1568' },
+];
+let _adGrid = null, _adGridDpr = 0;
+function _adGridPattern() {                                          // the LED pixel grid: a dark line down and along each 3 px cell
+  if (_adGrid && _adGridDpr === DPR) return _adGrid;
+  const s = Math.max(2, Math.round(3 * DPR)), c = document.createElement('canvas'); c.width = c.height = s;
+  const g = c.getContext('2d'); g.fillStyle = 'rgba(0,0,0,0.16)'; g.fillRect(s - Math.max(1, Math.round(DPR)), 0, Math.max(1, Math.round(DPR)), s); g.fillRect(0, s - Math.max(1, Math.round(DPR)), s, Math.max(1, Math.round(DPR)));
+  _adGridDpr = DPR; _adGrid = ctx.createPattern(c, 'repeat');
+  _adGrid.setTransform(new DOMMatrix().scale(1 / DPR));
+  return _adGrid;
+}
+function _adSlide(s, x, y, w, h, alpha) {
+  if (alpha <= 0) return;
+  ctx.save(); ctx.globalAlpha = alpha;
+  const g = ctx.createLinearGradient(x, 0, x + w, 0); g.addColorStop(0, s.bg[0]); g.addColorStop(1, s.bg[1]);
+  ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+  if (s.accent) { const a = ctx.createLinearGradient(x, 0, x + w, 0); ['#9e07ae', '#e5202f', '#f06424', '#faa51a'].forEach((c, i) => a.addColorStop(i / 3, c)); ctx.fillStyle = a; ctx.fillRect(x, y + h * 0.93, w, h * 0.07); }
+  if (showFx && T.sc >= 6) { ctx.fillStyle = _adGridPattern(); ctx.fillRect(x, y, w, h); }     // LED grid sits under the logo so the logo stays crisp
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  const im = AD_LOGOS[s.logo];
+  if (im.complete && im.naturalWidth) {
+    let lh = h * 0.72, lw = lh * im.naturalWidth / im.naturalHeight;
+    if (lw > w * 0.86) { lw = w * 0.86; lh = lw * im.naturalHeight / im.naturalWidth; }
+    ctx.drawImage(im, -lw / 2, -lh / 2, lw, lh);
+  }
+  ctx.restore();
+}
+// Light spill from each board: a fan that widens with distance and fades out (fixed look, not user-adjustable).
+const AD_SPREAD_DEG = 20, AD_REACH_M = 2.0, AD_BRIGHT = 0.54, AD_BOARD_H = 2.4, AD_SEAM_M = 3;
+function _adBoard(cx, cy, w, h, rot, off, t) {
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(rot);
+  const sc = T.sc, k0 = Math.floor(t / AD_SECS + off), n = AD_SLIDES.length, cur = AD_SLIDES[((k0 % n) + n) % n].glow;
+  // footing shadow on the stand side of the board (local -y, away from the pitch)
+  const fh = 0.7 * sc, fg = ctx.createLinearGradient(0, -h / 2, 0, -h / 2 - fh); fg.addColorStop(0, 'rgba(0,0,0,0.6)'); fg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = fg; ctx.fillRect(-w / 2, -h / 2 - fh, w, fh);
+  // angled light on the grass, pitch side (local +y): fan polygon plus a soft ellipse at each end so neighbouring boards blend
+  const reach = showFx ? AD_REACH_M * sc : 0, ang = AD_SPREAD_DEG * Math.PI / 180, k = Math.tan(ang) * reach;
+  if (showFx) {
+  ctx.save(); ctx.globalCompositeOperation = 'screen';
+  const sp = ctx.createLinearGradient(0, h / 2, 0, h / 2 + reach);
+  sp.addColorStop(0, cur + Math.round(AD_BRIGHT * 255).toString(16).padStart(2, '0')); sp.addColorStop(1, cur + '00');
+  ctx.fillStyle = sp; ctx.beginPath(); ctx.moveTo(-w / 2, h / 2); ctx.lineTo(w / 2, h / 2); ctx.lineTo(w / 2 + k, h / 2 + reach); ctx.lineTo(-w / 2 - k, h / 2 + reach); ctx.closePath(); ctx.fill();
+  for (const sg of [-1, 1]) {
+    const ex = sg * (w / 2 + k * 0.45), ey = h / 2 + reach * 0.45, rx = reach * 0.5 + k * 0.4, ry = reach * 0.62;
+    ctx.save(); ctx.translate(sg * w / 2, h / 2); ctx.rotate(sg * ang * 0.6); ctx.translate(-sg * w / 2, -h / 2);
+    ctx.translate(ex, ey); ctx.scale(rx, ry);
+    const rg = ctx.createRadialGradient(0, 0, 0, 0, 0, 1); rg.addColorStop(0, cur + Math.round(AD_BRIGHT * 0.7 * 255).toString(16).padStart(2, '0')); rg.addColorStop(1, cur + '00');
+    ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(0, 0, 1, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  }
+  ctx.restore();
+  }
+  // bezel with a highlight on its top edge
+  const bez = ctx.createLinearGradient(0, -h / 2, 0, h / 2); bez.addColorStop(0, '#4a4a58'); bez.addColorStop(0.35, '#1a1a22'); bez.addColorStop(1, '#0a0a0f');
+  ctx.fillStyle = bez; ctx.beginPath(); ctx.roundRect(-w / 2, -h / 2, w, h, Math.min(3, h * 0.08)); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fillRect(-w / 2 + 1, -h / 2, w - 2, Math.max(0.6, h * 0.02));
+  const p = Math.max(1.5, h * 0.09), x = -w / 2 + p, y = -h / 2 + p, iw = w - 2 * p, ih = h - 2 * p;
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y, iw, ih); ctx.clip();
+  const ph = t / AD_SECS + off, k1 = Math.floor(ph), f = ph - k1;
+  _adSlide(AD_SLIDES[((k1 % n) + n) % n], x, y, iw, ih, 1);
+  if (f > 1 - AD_FADE) _adSlide(AD_SLIDES[(((k1 + 1) % n) + n) % n], x, y, iw, ih, (f - (1 - AD_FADE)) / AD_FADE);
+  const seam = AD_SEAM_M * sc;                                          // module joins every 3 m
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  for (let sx = x + seam; sx < x + iw - 1; sx += seam) ctx.fillRect(sx, y, Math.max(1, DPR > 1 ? 1 : 1), ih);
+  const gl = ctx.createLinearGradient(x, y, x + iw * 0.5, y + ih); gl.addColorStop(0, 'rgba(255,255,255,0.2)'); gl.addColorStop(0.45, 'rgba(255,255,255,0)');
+  if (showFx) { ctx.fillStyle = gl; ctx.fillRect(x, y, iw, ih); }
+  ctx.restore();
+  ctx.restore();
+}
+function drawBoards(fi) {
+  if (!showBoards) return;
+  const L = T.L, Wp = T.Wp, sc = T.sc, bm = AD_BOARD_H, t = fi / BASE_FPS;
+  drawCrowdSmoke(fi);
+  const side = (n, span, place) => { const w = (span - AD_GAP_M * (n - 1)) / n; for (let i = 0; i < n; i++) place(-span / 2 + w / 2 + i * (w + AD_GAP_M), w, i); };
+  const edge = AD_BAND_IN + bm / 2;
+  side(6, L, (x, w, i) => {
+    const [tx, ty] = tc(x, Wp / 2 + edge), [bx, by] = tc(x, -(Wp / 2 + edge));
+    _adBoard(tx, ty, w * sc, bm * sc, 0, i, t);                 // top: upright
+    _adBoard(bx, by, w * sc, bm * sc, Math.PI, i + 3, t);       // bottom: inverted, facing the pitch
+  });
+  side(3, Wp, (y, w, i) => {
+    const [lx, ly] = tc(-(L / 2 + edge), y), [rx, ry] = tc(L / 2 + edge, y);
+    _adBoard(lx, ly, w * sc, bm * sc, -Math.PI / 2, i + 1, t);
+    _adBoard(rx, ry, w * sc, bm * sc, Math.PI / 2, i + 4, t);
+  });
+  drawCrowdLights(fi);                                          // flares and phone lights on top of the boards
+}
+
+// ── Crowd ─────────────────────────────────────────────────────────────────────
+// A strip of stand behind the boards on all four sides, mostly home colours, with one away block behind the right-hand goal.
+// Items: phone lights that twinkle and flash, and smoke and flares in the away end.
+// The fixed parts are drawn into the cached pitch layer; the twinkling, flares and smoke are drawn live in drawCrowdLive.
+const CROWD_IN = AD_BAND_IN + AD_BOARD_H + 0.3;
+function _rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function _rgb(c) { const m = /^#?([0-9a-f]{6})$/i.exec(c || ''); const v = m ? parseInt(m[1], 16) : 0x888888; return [v >> 16 & 255, v >> 8 & 255, v & 255]; }
+function _mix(c, o, k) { const a = _rgb(c), b = _rgb(o); return 'rgb(' + a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(',') + ')'; }
+let _crowd = null, _crowdKey = '';
+function _crowdModel() {
+  const L = T.L, Wp = T.Wp, key = [L, Wp, MARGIN].join('|');
+  if (_crowd && _crowdKey === key) return _crowd;
+  const r = _rng(20260511), M = { dots: [], phones: [], flares: [], smoke: [] };
+  const x0 = L / 2 + CROWD_IN, x1 = L / 2 + MARGIN, y0 = Wp / 2 + CROWD_IN, y1 = Wp / 2 + MARGIN;
+  // regions: [xmin,xmax,ymin,ymax, rotation so local +y faces the pitch, away?]
+  const regs = [
+    [-x1, x1, y0, y1, 0, false], [-x1, x1, -y1, -y0, Math.PI, false],
+    [-x1, -x0, -y0, y0, -Math.PI / 2, false], [x0, x1, -y0, y0, Math.PI / 2, true],
+  ];
+  const dens = 1.0;
+  for (const [xa, xb, ya, yb, rot, away] of regs) {
+    const nBlock = Math.round((xb - xa) * (yb - ya) * dens);
+    for (let i = 0; i < nBlock; i++) {
+      const x = xa + r() * (xb - xa), y = ya + r() * (yb - ya);
+      const d = rot === 0 ? y - y0 : rot === Math.PI ? -y - y0 : rot < 0 ? -x - x0 : x - x0;   // depth from the boards (0) to the back (MARGIN-CROWD_IN)
+      const u = Math.min(1, d / (MARGIN - CROWD_IN)), q = r();
+      const kind = away ? (q < 0.8 ? 0 : q < 0.9 ? 1 : 2) : (q < 0.72 ? 0 : q < 0.84 ? 1 : 2);
+      M.dots.push({ x, y, rr: 0.24 + r() * 0.14, kind, n: r(), u });
+      if (r() < 0.1) M.phones.push({ x, y, ph: r() * 6.28, sp: 1.5 + r() * 2.5, id: M.phones.length });
+    }
+    if (away) {
+      for (let i = 0; i < 14; i++) M.flares.push({ x: xa + r() * (xb - xa), y: ya + r() * (yb - ya), ph: r() * 6.28, hot: r() < 0.5 });
+      for (let i = 0; i < 7; i++) M.smoke.push({ x: xa + 0.5 + r() * (xb - xa), y: ya + r() * (yb - ya), rad: 2.2 + r() * 2.2, ph: r() * 6.28, dx: (r() - 0.5) * 0.6 });
+    }
+  }
+  M.rect = { x0, x1, y0, y1 }; _crowd = M; _crowdKey = key; return M;
+}
+function drawCrowdStatic() {
+  if (!showBoards) return;
+  const M = _crowdModel(), sc = T.sc, L = T.L, Wp = T.Wp, { x0, x1, y0, y1 } = M.rect;
+  const home = D.colors['1'] || '#4682b4', away = D.colors['2'] || '#cd5c5c';
+  // dark stand behind the dots, in the same four regions
+  const [ax, ay] = tc(-x1, y1), [bx, by] = tc(x1, -y1), [cx, cy] = tc(-x0, y0), [dx, dy] = tc(x0, -y0);
+  ctx.fillStyle = '#0c0514'; ctx.fillRect(ax, ay, bx - ax, by - ay);
+  ctx.fillStyle = '#14061f'; ctx.fillRect(ax, ay, bx - ax, cy - ay); ctx.fillRect(ax, dy, bx - ax, by - dy); ctx.fillRect(ax, cy, cx - ax, dy - cy); ctx.fillRect(dx, cy, bx - dx, dy - cy);
+  const neutral = ['#d8d8e0', '#2b2b36', '#8a8a99', '#f2f2f2'];
+  const rad = (m) => Math.max(0.9, m * sc);
+  for (const d of M.dots) {
+    const team = d.x > x0 && Math.abs(d.y) < y0 ? away : home;
+    let col = d.kind === 0 ? team : d.kind === 1 ? _mix(team, '#ffffff', 0.55) : neutral[Math.floor(d.n * neutral.length)];
+    col = _mix(col.startsWith('#') ? col : _mix(col, '#000000', 0), '#000000', 0.5 * (1 - d.u));   // darker toward the boards, lit toward the back
+    const [px, py] = tc(d.x, d.y);
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(px, py, rad(d.rr), 0, 6.2832); ctx.fill();
+  }
+  // faint tier lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
+  for (const o of [1.0, 2.0]) {
+    const yy = [y0 + o, -(y0 + o)], xx = [x0 + o, -(x0 + o)];
+    ctx.beginPath();
+    for (const y of yy) { const [p, q] = tc(-x1, y), [p2] = tc(x1, y); ctx.moveTo(p, q); ctx.lineTo(p2, q); }
+    for (const x of xx) { const [p, q] = tc(x, y0), [, q2] = tc(x, -y0); ctx.moveTo(p, q); ctx.lineTo(p, q2); }
+    ctx.stroke();
+  }
+}
+function drawCrowdSmoke(fi) {                                       // behind the boards
+  if (!showBoards) return;
+  const M = _crowdModel(), sc = T.sc, t = fi / BASE_FPS, { x0, x1, y0 } = M.rect;
+  const home = D.colors['1'] || '#4682b4', away = D.colors['2'] || '#cd5c5c';
+  // smoke and flares in the away end, clipped to the stand behind the boards
+  const [ca, cb] = tc(T.L / 2 + AD_BAND_IN, y0), [cc, cd] = tc(x1, -y0);
+  ctx.save(); ctx.beginPath(); ctx.rect(ca, cb, cc - ca, cd - cb); ctx.clip();
+  for (const s of M.smoke) {
+    const [px, py] = tc(s.x + Math.sin(t * 0.15 + s.ph) * s.dx, s.y + Math.cos(t * 0.11 + s.ph) * 0.5), r = s.rad * sc, a = 0.2 + 0.08 * Math.sin(t * 0.4 + s.ph);
+    const g = ctx.createRadialGradient(px, py, 0, px, py, r); g.addColorStop(0, 'rgba(235,150,140,' + a + ')'); g.addColorStop(1, 'rgba(235,150,140,0)');
+    ctx.fillStyle = g; ctx.fillRect(px - r, py - r, 2 * r, 2 * r);
+  }
+  ctx.restore();
+}
+function drawCrowdLights(fi) {                                      // drawn over the boards so no glow is cut off
+  if (!showBoards) return;
+  const M = _crowdModel(), sc = T.sc, t = fi / BASE_FPS;
+  ctx.save(); ctx.globalCompositeOperation = 'screen';
+  for (const f of M.flares) {
+    const [px, py] = tc(f.x, f.y), fl = 0.75 + 0.25 * Math.sin(t * 9 + f.ph) * Math.sin(t * 3.7 + f.ph * 2), r = (1.3 + (f.hot ? 0.6 : 0)) * sc * fl;
+    const g = ctx.createRadialGradient(px, py, 0, px, py, r); g.addColorStop(0, f.hot ? 'rgba(255,230,190,0.95)' : 'rgba(255,90,70,0.9)'); g.addColorStop(0.3, 'rgba(255,60,40,0.45)'); g.addColorStop(1, 'rgba(255,40,20,0)');
+    ctx.fillStyle = g; ctx.fillRect(px - r, py - r, 2 * r, 2 * r);
+  }
+  // phone lights: a steady glow that twinkles, with the odd camera flash
+  const tf = Math.floor(t * 4);
+  for (const p of M.phones) {
+    const [px, py] = tc(p.x, p.y), tw = 0.6 + 0.4 * Math.sin(t * p.sp + p.ph), h = ((p.id * 2654435761 + tf * 40503) >>> 0) % 2000 < 4;   // ~0.2% a quarter-second
+    const r = Math.max(1.4, 0.26 * sc);
+    ctx.fillStyle = 'rgba(160,210,255,' + (0.22 * tw + 0.08) + ')'; ctx.beginPath(); ctx.arc(px, py, r * 2.4, 0, 6.2832); ctx.fill();    // halo
+    ctx.fillStyle = 'rgba(235,246,255,' + (0.6 * tw + 0.4) + ')'; ctx.fillRect(px - r, py - r, 2 * r, 1.6 * r);
+    if (h) { const R = 1.6 * sc, g = ctx.createRadialGradient(px, py, 0, px, py, R); g.addColorStop(0, 'rgba(255,255,255,0.95)'); g.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = g; ctx.fillRect(px - R, py - R, 2 * R, 2 * R); }
+  }
+  ctx.restore();
+}
+
 // The pitch (grass, logo, texture, lines, nets) never changes between frames, so it is drawn once to an offscreen
 // layer and blitted. The layer is redrawn only when its key changes: size, transform, kit/grass colours, export layout, logo/texture loading.
 let _pitchLayer = null, _pitchKey = '';
 function drawPitch(W, H) {
   const key = [canvas.width, canvas.height, DPR, T.ox, T.oy, T.sc, T.top, T.head, T.foot, T.barW, T.L, T.Wp,
-    _isExporting() ? 1 : 0, logoReady() ? 1 : 0, texReady() ? 1 : 0, tileCss(0), tileCss(1), BAR_COLOUR].join('|');
+    _isExporting() ? 1 : 0, logoReady() ? 1 : 0, texReady() ? 1 : 0, tileCss(0), tileCss(1), BAR_COLOUR, showBoards ? 1 : 0, MARGIN, D.colors['1'], D.colors['2']].join('|');
   if (!_pitchLayer) _pitchLayer = document.createElement('canvas');
   if (key !== _pitchKey || _pitchLayer.width !== canvas.width || _pitchLayer.height !== canvas.height) {
     _pitchLayer.width = canvas.width; _pitchLayer.height = canvas.height;
@@ -394,6 +603,8 @@ function drawPitchNow(W, H) {
     ctx.fillRect(Math.floor(T.ox), Math.floor(T.top), Math.ceil(T.barW), T.head);
     ctx.fillRect(Math.floor(T.ox), Math.floor(T.oy + (T.Wp + 2 * MARGIN) * T.sc), Math.ceil(T.barW), T.foot ? T.foot + 1 : 0);
   }
+
+  drawCrowdStatic();                                            // stand and crowd behind the boards (cached with the pitch)
 
   // Vertical grass stripes: subtle two-tone, pixel-snapped so no seams show between stripes
   const cw = L / PITCH_COLS, rh = Wp / PITCH_ROWS;
@@ -3435,6 +3646,7 @@ function render(fi) {
     ctx.clip();
   }
   drawPitch(W, H);
+  drawBoards(fi);
   if (roundPitch) ctx.restore();
   if (showEvents) drawEvent(fi);
   drawDefCompactness(fi);
@@ -3898,6 +4110,18 @@ ro.observe(document.getElementById('pitch-wrap'));
 
 buildSourceToggles();
 buildAppearanceControls();
+(function () {                                                       // Appearance > "Advertising boards": on adds board space round the pitch, off gives it back to the pitch
+  const fxb = document.getElementById('btn-fx');
+  if (fxb) {
+    const sync = () => { fxb.classList.toggle('on', showBoards); fxb.setAttribute('aria-pressed', showBoards ? 'true' : 'false'); };
+    sync();
+    fxb.addEventListener('click', () => {
+      showBoards = !showBoards; MARGIN = showBoards ? MARGIN_BOARDS : MARGIN_PLAIN;
+      try { localStorage.setItem('opta-fx2', showBoards ? 'on' : 'off'); } catch (e) { /* storage unavailable */ }
+      sync(); _pitchKey = ''; resizeCanvas();
+    });
+  }
+})();
 
 // Setup Overlays collapsible section
 const overlaysToggle = document.getElementById('overlays-toggle');
