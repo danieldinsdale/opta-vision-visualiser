@@ -12,7 +12,7 @@
 //    Controls ............ Meta display + time input, Playback, Source toggles, Wiring
 //    3D .................. 3D renderer (Three.js, loaded on first use)
 //    Tables .............. Events, Runs and Phases tables (one open at a time)
-//    Export & layout ..... GIF + Video export, Auto-fit of the host iframe
+//    Export & layout ..... Video export, Auto-fit of the host iframe
 // ═════════════════════════════════════════════════════════════════════════════
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -26,7 +26,7 @@ const D = (() => {
 })();
 if (!D) throw new Error('No match data: open the visualiser page (index.html) and load a match.');
 
-// Optional third-party scripts (3D, GIF export, HLS video): vendored copies in web/vendor, set by
+// Optional third-party scripts (3D, HLS video): vendored copies in web/vendor, set by
 // vendor-config.js, so no request ever leaves the page.
 const VENDOR = window.OPTA_VENDOR;
 
@@ -217,7 +217,7 @@ document.getElementById('btn-video-reload').addEventListener('click', () => {
 //  State
 // ─────────────────────────────────────────────────────────────────────────────
 const canvas  = document.getElementById('pc');
-const ctx     = canvas.getContext('2d');
+let ctx        = canvas.getContext('2d');   // swapped briefly to the static-pitch layer while it is (re)drawn
 const slider  = document.getElementById('frame-slider');
 const btnPlay = document.getElementById('btn-play');
 const metaDiv = document.getElementById('meta-display');
@@ -366,7 +366,27 @@ function texPattern(g, L, x0, y0, k) {
 }
 const tileCss = (k) => '#' + tileHex(k).toString(16).padStart(6, '0');
 
+// The pitch (grass, logo, texture, lines, nets) never changes between frames, so it is drawn once to an offscreen
+// layer and blitted. The layer is redrawn only when its key changes: size, transform, kit/grass colours, export layout, logo/texture loading.
+let _pitchLayer = null, _pitchKey = '';
 function drawPitch(W, H) {
+  const key = [canvas.width, canvas.height, DPR, T.ox, T.oy, T.sc, T.top, T.head, T.foot, T.barW, T.L, T.Wp,
+    _isExporting() ? 1 : 0, logoReady() ? 1 : 0, texReady() ? 1 : 0, tileCss(0), tileCss(1), BAR_COLOUR].join('|');
+  if (!_pitchLayer) _pitchLayer = document.createElement('canvas');
+  if (key !== _pitchKey || _pitchLayer.width !== canvas.width || _pitchLayer.height !== canvas.height) {
+    _pitchLayer.width = canvas.width; _pitchLayer.height = canvas.height;
+    const main = ctx;
+    ctx = _pitchLayer.getContext('2d');
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    try { drawPitchNow(W, H); } finally { ctx = main; }
+    _pitchKey = key;
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(_pitchLayer, 0, 0);
+  ctx.restore();
+}
+function drawPitchNow(W, H) {
   const L = T.L, Wp = T.Wp, sc = T.sc;
 
   if (_isExporting()) {                                         // header and footer bars (saved clips only; on screen the page background shows through)
@@ -2528,7 +2548,7 @@ function updateMeta(fi) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Live scoreboard (2D canvas, so it is part of GIF / video exports)
+//  Live scoreboard (2D canvas, so it is part of video exports)
 // ─────────────────────────────────────────────────────────────────────────────
 // Score at any moment = goal events up to the current frame. Own goals (qualifier 28) are credited to the
 // opposing side; if that disagrees with the final score in matchstats while the other reading agrees, the
@@ -2669,7 +2689,7 @@ function ballTracked(fi) {
 }
 
 // Match title in the footer bar under the pitch: teams | competition | venue | date (whatever is known).
-// Drawn on the canvas so it is part of image, GIF and video exports. The font shrinks to fit narrow pictures.
+// Drawn on the canvas so it is part of image and video exports. The font shrinks to fit narrow pictures.
 // First frame after `fi` where the ball has tracked coordinates in any source (-1 if none).
 function nextBallFrame(fi) {
   if (!_ballEntity) return -1;
@@ -2704,13 +2724,13 @@ skipBtn.addEventListener('click', () => {
   if (target >= 0) render(target);
 });
 
-// True while a GIF or video is being made (the export buttons are disabled then).
+// True while a video is being made (the export buttons are disabled then).
 function _isExporting() {
-  const g = document.getElementById('btn-gen-gif'), v = document.getElementById('btn-gen-vid');
-  return !!(g && v && (g.disabled || v.disabled));
+  const v = document.getElementById('btn-gen-vid');
+  return !!(v && v.disabled);
 }
 
-// The match title is in the page header on screen; the footer bar is drawn only while a GIF or video is being made.
+// The match title is in the page header on screen; the footer bar is drawn only while a video is being made.
 function drawMatchFooter() {
   if (!_isExporting()) return;
   const L = D.lineup || {};
@@ -3460,7 +3480,7 @@ function startPlayback() {
   scheduleNext();
 }
 
-// Syncs GIF/Video export time inputs to the current frame position.
+// Syncs Video export time inputs to the current frame position.
 // Called on pause; user edits set _gifTimeUserEdited to suppress auto-sync.
 let _gifTimeUserEdited = false;
 function _syncGifTimes() {
@@ -3895,6 +3915,69 @@ document.getElementById('btn-3d').addEventListener('click', () => {
   if (is3D) enter3D(); else exit3D();
 });
 
+// ── Keyboard shortcuts ────────────────────────────────────────────────────────
+// Space play/pause · ←/→ one frame (Shift: one second) · [ / ] previous / next key moment · Home/End start/end · ? help.
+// Key moments are the goals and cards on the play bar (landing one second before, like clicking them) plus each period's first frame.
+function _keyMoments() {
+  const set = new Set(_seekItems.map(it => _oneSecondBefore(it.fi)));
+  for (let i = 0; i < TOTAL_FRAMES; i++) if (i === 0 || D.meta.period[i] !== D.meta.period[i - 1]) set.add(i);
+  return [...set].sort((a, b) => a - b);
+}
+function _jumpKeyMoment(dir) {
+  const km = _keyMoments(), cur = currentFi;
+  const target = dir > 0 ? km.find(f => f > cur) : [...km].reverse().find(f => f < cur - 1);   // -1: a jump back from just after a moment goes to the one before it
+  if (target === undefined) return;
+  stopPlayback(); render(target);
+}
+const _helpEl = document.createElement('div');
+_helpEl.id = 'kbd-help'; _helpEl.hidden = true; _helpEl.setAttribute('role', 'dialog'); _helpEl.setAttribute('aria-label', 'Keyboard shortcuts');
+const _kc = (...k) => k.map(x => '<kbd>' + x + '</kbd>').join('');
+_helpEl.innerHTML = '<h4>Keyboard shortcuts</h4>' + [
+  ['Play / pause', _kc('Space')], ['Step one frame', _kc('\u2190', '\u2192')], ['Step one second', _kc('Shift', '\u2190', '\u2192')],
+  ['Previous / next key moment', _kc('[', ']')], ['Start / end of match', _kc('Home', 'End')], ['Show or hide this list', _kc('?')],
+].map(r => '<div class="kr"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('');
+document.body.appendChild(_helpEl);
+const _kbdBtn = document.getElementById('btn-kbd'), _kbdWrap = document.getElementById('kbd-wrap');
+let _kbdPinned = false;                                              // opened by click (or "?"): stays until Esc / click away; hover alone just peeks
+function _kbdShow(on, pin) {
+  if (on) {
+    const r = _kbdBtn.getBoundingClientRect();
+    _helpEl.hidden = false;
+    _helpEl.style.top = (r.bottom + 6) + 'px';
+    _helpEl.style.left = Math.max(8, Math.min(window.innerWidth - _helpEl.offsetWidth - 8, r.right - _helpEl.offsetWidth)) + 'px';
+    if (pin) _kbdPinned = true;
+  } else { _helpEl.hidden = true; _kbdPinned = false; }
+  _kbdBtn.setAttribute('aria-expanded', String(!_helpEl.hidden));
+  _kbdBtn.classList.toggle('on', !_helpEl.hidden);
+}
+_kbdBtn.addEventListener('click', (e) => { e.stopPropagation(); _kbdShow(_helpEl.hidden || !_kbdPinned, true); });
+_kbdWrap.addEventListener('mouseenter', () => { if (_helpEl.hidden) _kbdShow(true, false); });
+const _kbdLeave = () => { if (!_kbdPinned) setTimeout(() => { if (!_kbdPinned && !_kbdWrap.matches(':hover') && !_helpEl.matches(':hover')) _kbdShow(false); }, 120); };
+_kbdWrap.addEventListener('mouseleave', _kbdLeave);
+_helpEl.addEventListener('mouseleave', _kbdLeave);
+document.addEventListener('click', (e) => { if (!_helpEl.hidden && !_helpEl.contains(e.target)) _kbdShow(false); });
+btnPlay.title = 'Play / pause (Space) \u00b7 see Shortcuts in the top bar';
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+  const t = e.target, tag = t && t.tagName;
+  if (tag === 'INPUT' && t.type !== 'range' && t.type !== 'checkbox' || tag === 'SELECT' || tag === 'TEXTAREA' || (t && t.isContentEditable)) return;   // typing: leave every key alone
+  if (e.key === 'Escape') { _kbdShow(false); return; }
+  if (document.body.classList.contains('export-open') || document.body.classList.contains('exporting')) return;
+  const k = e.key, onSlider = tag === 'INPUT' && t.type === 'range';
+  if (k === '?') { _kbdShow(_helpEl.hidden || !_kbdPinned, true); e.preventDefault(); return; }
+  if (is3D && (k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown')) return;   // 3D uses the arrows to pan
+  if (k === ' ' || k === 'Spacebar') {
+    if (tag === 'BUTTON' || tag === 'A') return;                      // a focused button keeps its own Space action
+    togglePlay(); e.preventDefault();
+  } else if (k === 'ArrowLeft' || k === 'ArrowRight') {
+    if (onSlider && !e.shiftKey) return;                              // the range input already steps one frame itself
+    const d = (k === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? BASE_FPS : 1);
+    stopPlayback(); render(Math.max(0, Math.min(TOTAL_FRAMES - 1, currentFi + d))); e.preventDefault();
+  } else if (k === '[' || k === ']') { _jumpKeyMoment(k === ']' ? 1 : -1); e.preventDefault(); }
+  else if (k === 'Home') { stopPlayback(); render(0); e.preventDefault(); }
+  else if (k === 'End') { stopPlayback(); render(TOTAL_FRAMES - 1); e.preventDefault(); }
+});
+
 // Arrow-key panning in 3D mode (left/right and forward/back along the ground plane)
 document.addEventListener('keydown', (e) => {
   if (!is3D) return;
@@ -4284,6 +4367,7 @@ function _closeAllBottomPanels() {
   });
 })();
 
+let _exportClips = null;        // set by the export code below: (clips, format, onStatus) => Promise
 // ── Events panel ─────────────────────────────────────────────────────────────
 (function () {
   if (!D.events || D.events.length === 0) return;
@@ -4296,6 +4380,8 @@ function _closeAllBottomPanels() {
   const tbody      = document.getElementById('events-tbody');
   let panelOpen    = false;
   let activeRow    = null;
+  const selected   = new Set();      // ticked events (D.events objects), kept across filtering
+  let shown        = [];
 
   wrap.style.display = 'block';
   countBadge.textContent = '(' + D.events.length + ')';
@@ -4382,6 +4468,8 @@ function _closeAllBottomPanels() {
 
     tbody.innerHTML = '';
     activeRow = null;
+    shown = filtered;
+    syncSelection();
 
     filtered.forEach(ev => {
       const pStart  = D.periodStartTimes[String(ev.p)] || 0;
@@ -4398,8 +4486,11 @@ function _closeAllBottomPanels() {
       const tr = document.createElement('tr');
       const eventIdStr = ev.eid !== null && ev.eid !== undefined ? ev.eid : '—';
       const evJerseyStr = ev.jn !== null && ev.jn !== undefined ? ev.jn : '—';
-      tr.innerHTML = '<td>P' + ev.p + '</td><td>' + mm + ':' + ss + '</td><td class="ev-cell"><img class="ev-ic" alt="" src="' + eventIconURL(ev) + '">' + ev.t + '</td><td>' + eventIdStr + '</td><td>' + (ev.ti !== null && ev.ti !== undefined ? '<span class="pl">' + _teamDot(ev.g) + teamStr + '</span>' : teamStr) + '</td><td>' + playerStr + '</td><td>' + (ev.ti !== null && ev.ti !== undefined && ev.jn !== null && ev.jn !== undefined ? _disc(ev.g, ev.jn) : evJerseyStr) + '</td><td>' + qualifiersStr + '</td>';
+      tr.innerHTML = '<td class="ev-sel"><input type="checkbox" aria-label="Select event for clip export"' + (selected.has(ev) ? ' checked' : '') + '></td><td>P' + ev.p + '</td><td>' + mm + ':' + ss + '</td><td class="ev-cell"><img class="ev-ic" alt="" src="' + eventIconURL(ev) + '">' + ev.t + '</td><td>' + eventIdStr + '</td><td>' + (ev.ti !== null && ev.ti !== undefined ? '<span class="pl">' + _teamDot(ev.g) + teamStr + '</span>' : teamStr) + '</td><td>' + playerStr + '</td><td>' + (ev.ti !== null && ev.ti !== undefined && ev.jn !== null && ev.jn !== undefined ? _disc(ev.g, ev.jn) : evJerseyStr) + '</td><td>' + qualifiersStr + '</td>';
       if (ev.ti !== null && ev.ti !== undefined) tr.firstElementChild.style.cssText += ';' + _edgeBg(ev.g);
+      const cb = tr.querySelector('input');
+      cb.addEventListener('click', e => e.stopPropagation());
+      cb.addEventListener('change', () => { if (cb.checked) selected.add(ev); else selected.delete(ev); syncSelection(); });
       tr.addEventListener('click', () => {
         stopPlayback();
         render(ev.fi);
@@ -4410,6 +4501,41 @@ function _closeAllBottomPanels() {
       tbody.appendChild(tr);
     });
   }
+
+  // ── Clips from events: tick events, export one clip each (one second before the event) ──
+  const selAll = document.getElementById('ev-sel-all'), selN = document.getElementById('ev-clips-n');
+  const btnClips = document.getElementById('btn-ev-clips'), clipStatus = document.getElementById('ev-clips-status');
+  function syncSelection() {
+    selN.textContent = selected.size + ' selected';
+    btnClips.disabled = selected.size === 0 || !_exportClips;
+    const n = shown.filter(e => selected.has(e)).length;
+    selAll.checked = shown.length > 0 && n === shown.length;
+    selAll.indeterminate = n > 0 && n < shown.length;
+  }
+  selAll.addEventListener('change', () => {
+    for (const e of shown) { if (selAll.checked) selected.add(e); else selected.delete(e); }
+    for (const cb of tbody.querySelectorAll('input[type=checkbox]')) cb.checked = selAll.checked;
+    syncSelection();
+  });
+  btnClips.addEventListener('click', async () => {
+    if (!_exportClips || !selected.size || btnClips.disabled) return;
+    const len = parseInt(document.getElementById('ev-clip-len').value, 10) || 10;
+    const clips = [...selected].sort((a, b) => a.fi - b.fi).map((ev, i) => {
+      const startFi = _oneSecondBefore(ev.fi);
+      let endFi = Math.min(TOTAL_FRAMES - 1, startFi + len * BASE_FPS);
+      while (endFi > startFi && D.meta.period[endFi] !== D.meta.period[startFi]) endFi--;   // never run into the next period
+      const rel = Math.max(0, D.meta.time[ev.fi] - (D.periodStartTimes[String(ev.p)] || 0));
+      const tm = String(Math.floor(rel / 60)).padStart(2, '0') + 'm' + String(Math.floor(rel % 60)).padStart(2, '0') + 's';
+      const nm = String(ev.t).replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24);
+      return { startFi, endFi, name: 'clip' + String(i + 1).padStart(2, '0') + '_P' + ev.p + '_' + tm + '_' + nm + (ev.eid != null ? '_' + String(ev.eid).replace(/\D/g, '') : '') };
+    }).filter(c => c.endFi > c.startFi);
+    if (!clips.length) { clipStatus.textContent = 'Nothing to export.'; return; }
+    btnClips.disabled = true;
+    try { await _exportClips(clips, m => { clipStatus.textContent = m; }, clipStatus); }
+    catch (err) { clipStatus.textContent = 'Export failed: ' + (err && err.message || err); }
+    syncSelection();
+  });
+  syncSelection();
 
   btnToggle.addEventListener('click', () => {
     const isOpen = body.style.display === 'block';
@@ -4430,13 +4556,12 @@ function _closeAllBottomPanels() {
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  GIF + Video Export
+//  Video Export
 // ─────────────────────────────────────────────────────────────────────────────
 (function () {
   const statusEl  = document.getElementById('gif-status');
   const barWrap   = document.getElementById('gif-progress-bar-wrap');
   const bar       = document.getElementById('gif-progress-bar');
-  const btnGen    = document.getElementById('btn-gen-gif');
   const btnVid    = document.getElementById('btn-gen-vid');
   const btnSync   = document.getElementById('btn-gif-sync');
 
@@ -4446,18 +4571,19 @@ function _closeAllBottomPanels() {
   // that is started from code long after the click that began the export, so a "Save" link is always shown
   // as well; clicking it is a user action and always works. The file URL is kept until the next export.
   let lastUrl = null;
-  function offerDownload(blob, filename, message) {
+  function offerDownload(blob, filename, message, target) {
     if (lastUrl) URL.revokeObjectURL(lastUrl);
     const url = lastUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = filename;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);          // automatic attempt
-    if (!statusEl) return;
+    const out = target || statusEl;
+    if (!out) return;
     const link = document.createElement('a');
     link.href = url; link.download = filename; link.textContent = 'Save ' + filename;
     link.style.cssText = 'color:#FAA51A;text-decoration:underline;margin-left:8px';
-    statusEl.textContent = message + ' If nothing was saved, click: ';
-    statusEl.appendChild(link);
+    out.textContent = message + ' If nothing was saved, click: ';
+    out.appendChild(link);
   }
   function setProgress(p) {
     if (!barWrap || !bar) return;
@@ -4465,34 +4591,7 @@ function _closeAllBottomPanels() {
     bar.style.width = Math.round(p * 100) + '%';
   }
 
-  function loadGifJs(cb) {
-    if (window.GIF && window._gifWorkerUrl) { cb(); return; }
-    setStatus('Loading GIF encoder…');
-    const s = document.createElement('script');
-    s.src = VENDOR.gif;
-    s.onerror = () => setStatus('Failed to load GIF encoder. Could not load gif.js.');
-    s.onload = () => {
-      // Fetch worker script and wrap in a blob: URL so it loads same-origin,
-      // bypassing the cross-origin restriction that causes encoding to stall at 0%.
-      fetch(VENDOR.gifWorker)
-        .then(r => r.text())
-        .then(text => {
-          const blob = new Blob([text], { type: 'application/javascript' });
-          window._gifWorkerUrl = URL.createObjectURL(blob);
-          setStatus('');
-          cb();
-        })
-        .catch(() => {
-          // Fallback to direct URL if fetch fails
-          window._gifWorkerUrl = VENDOR.gifWorker;
-          setStatus('');
-          cb();
-        });
-    };
-    document.head.appendChild(s);
-  }
-
-  if (!btnGen) return;
+  if (!btnVid) return;
 
   // Mark user-edited when any time field changes; ↺ button resets and resyncs
   ['gif-period','gif-start-min','gif-start-sec','gif-end-min','gif-end-sec'].forEach(id => {
@@ -4514,9 +4613,8 @@ function _closeAllBottomPanels() {
     const endMin    = parseInt(document.getElementById('gif-end-min').value,    10) || 0;
     const endSec    = parseInt(document.getElementById('gif-end-sec').value,    10) || 5;
     const fps       = parseInt(document.getElementById('gif-fps').value,        10) || 10;
-    const scale     = parseFloat(document.getElementById('gif-scale').value)        || 0.5;
     const speedMult = parseFloat(document.getElementById('vid-speed').value)        || 1;
-    return { period, startMin, startSec, endMin, endSec, fps, scale, speedMult };
+    return { period, startMin, startSec, endMin, endSec, fps, speedMult };
   }
 
   // ── Video (WebM via MediaRecorder) ─────────────────────────────────────────
@@ -4535,7 +4633,7 @@ function _closeAllBottomPanels() {
       // captureStream(fps) drives timestamps from the wall clock so the encoder
       // produces a correctly-timed video; requestFrame() hints encourage capture
       // immediately after each render rather than between renders.
-      btnVid.disabled = true; btnGen.disabled = true;   // export mode: footer bar reserved, so size the canvas and lay out before measuring the crop
+      btnVid.disabled = true;   // export mode: footer bar reserved, so size the canvas and lay out before measuring the crop
       resizeCanvas();
       const pr = pitchRect();
       const cropCanvas = document.createElement('canvas');
@@ -4553,7 +4651,7 @@ function _closeAllBottomPanels() {
         offerDownload(blob, 'animation_P' + period + '_' + startMin + 'm' + startSec + 's_' + speedMult + 'x.' + ext,
           'Done! Video ready (' + mimeType.split(';')[0] + ', ' + speedMult + '×, ' + pr.w + '×' + pr.h + ').');
         setProgress(0);
-        btnVid.disabled = false; btnGen.disabled = false;
+        btnVid.disabled = false;
         resizeCanvas();
       };
 
@@ -4572,7 +4670,7 @@ function _closeAllBottomPanels() {
       if (track.requestFrame) track.requestFrame();
 
       recorder.start();
-      btnVid.disabled = true; btnGen.disabled = true;
+      btnVid.disabled = true;
       setStatus('Recording frame 1 / ' + total + '…');
       setProgress(0);
 
@@ -4597,82 +4695,74 @@ function _closeAllBottomPanels() {
     });
   }
 
-  // ── GIF button ─────────────────────────────────────────────────────────────
-  btnGen.addEventListener('click', () => {
-    loadGifJs(() => {
-      const { period, startMin, startSec, endMin, endSec, fps, scale } = readTimes();
+  // ── Batch export for "Clips from events": one video per clip, bundled in a single .zip ──
+  const _crcTable = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  const _crc32 = u8 => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = _crcTable[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  function _zipStore(files) {                                         // files: [{name, data: Uint8Array}] -> Blob (no compression: video is already compressed)
+    const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+    for (const f of files) {
+      const nm = enc.encode(f.name), crc = _crc32(f.data), sz = f.data.length;
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint32(14, crc, true);
+      lh.setUint32(18, sz, true); lh.setUint32(22, sz, true); lh.setUint16(26, nm.length, true);
+      parts.push(lh.buffer, nm, f.data);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint32(16, crc, true);
+      ch.setUint32(20, sz, true); ch.setUint32(24, sz, true); ch.setUint16(28, nm.length, true); ch.setUint32(42, off, true);
+      central.push(ch.buffer, nm);
+      off += 30 + nm.length + sz;
+    }
+    const csz = central.reduce((a, b) => a + b.byteLength, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, csz, true); end.setUint32(16, off, true);
+    return new Blob([...parts, ...central, end.buffer], { type: 'application/zip' });
+  }
+  const _tick = () => new Promise(r => setTimeout(r, 0));
+  const _u8 = async blob => new Uint8Array(await blob.arrayBuffer());
 
-      const startFi = findFrameByTime(period, startMin, startSec);
-      const endFi   = findFrameByTime(period, endMin,   endSec);
-      if (endFi <= startFi) { setStatus('End time must be after start time.'); return; }
-
-      const step  = Math.max(1, Math.round(BASE_FPS / fps * speedMult));
-      const delay = Math.round(1000 / fps);
-      // Crop to pitch area (no black bars), then apply the user's scale factor
-      btnGen.disabled = true;   // export mode: footer bar reserved, so size the canvas and lay out before measuring the crop
-      resizeCanvas();
-      const pr = pitchRect();
-      const W  = Math.max(1, Math.round(pr.w * scale));
-      const H  = Math.max(1, Math.round(pr.h * scale));
-
-      // Offscreen canvas for downscaling
-      const tmp    = document.createElement('canvas');
-      tmp.width    = W; tmp.height = H;
-      const tmpCtx = tmp.getContext('2d');
-
-      const gif = new GIF({
-        workers:      2,
-        quality:      10,
-        width:        W,
-        height:       H,
-        workerScript: window._gifWorkerUrl,
-      });
-
-      // Collect frame indices to capture
-      const frames = [];
-      for (let fi = startFi; fi <= endFi; fi += step) frames.push(fi);
-      const total = frames.length;
-
-      setStatus('Capturing frame 0 / ' + total + '…');
-      setProgress(0);
-      btnGen.disabled = true;
-
-      // Async frame capture — yields to event loop between frames so UI stays responsive
-      let idx = 0;
-      function captureNext() {
-        if (idx >= frames.length) {
-          setStatus('Encoding GIF (' + total + ' frames)…');
-          gif.render();
-          return;
+  _exportClips = async (clips, say, target) => {
+    const { fps, speedMult } = readTimes();
+    if (!window.MediaRecorder) throw new Error('Video recording is not supported in this browser.');
+    const step = Math.max(1, Math.round(BASE_FPS / fps * speedMult)), delay = Math.round(1000 / fps);
+    btnVid.disabled = true;     // export layout (header/footer bars), as for a single clip
+    stopPlayback(); resizeCanvas();
+    const pr = pitchRect();
+    const W = pr.w, H = pr.h;
+    const tmp = document.createElement('canvas'); tmp.width = W; tmp.height = H;
+    const tctx = tmp.getContext('2d');
+    const blit = () => { tctx.clearRect(0, 0, W, H); tctx.drawImage(canvas, pr.x * DPR, pr.y * DPR, pr.w * DPR, pr.h * DPR, 0, 0, W, H); };
+    const mime = ['video/webm;codecs=vp9', 'video/webm', 'video/mp4'].find(t => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+    const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
+    const files = [], back = currentFi;
+    try {
+      for (let c = 0; c < clips.length; c++) {
+        const clip = clips[c], frames = [];
+        for (let fi = clip.startFi; fi <= clip.endFi; fi += step) frames.push(fi);
+        const tag = 'Clip ' + (c + 1) + ' / ' + clips.length + ': ';
+        let blob;
+        const stream = tmp.captureStream(fps), track = stream.getVideoTracks()[0];
+        const rec = new MediaRecorder(stream, { mimeType: mime }), chunks = [];
+        rec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+        const done = new Promise(res => { rec.onstop = res; });
+        render(frames[0]); blit(); if (track.requestFrame) track.requestFrame();
+        rec.start();
+        for (let i = 0; i < frames.length; i++) {
+          render(frames[i]); blit(); if (track.requestFrame) track.requestFrame();
+          say(tag + 'recording ' + (i + 1) + ' / ' + frames.length);
+          await new Promise(r => setTimeout(r, delay));
         }
-        stopPlayback();
-        render(frames[idx]);
-        tmpCtx.clearRect(0, 0, W, H);
-        // Blit only the pitch region from the main canvas, scaled to output size
-        tmpCtx.drawImage(canvas, pr.x * DPR, pr.y * DPR, pr.w * DPR, pr.h * DPR, 0, 0, W, H);
-        gif.addFrame(tmpCtx, { copy: true, delay });
-        idx++;
-        setStatus('Capturing frame ' + idx + ' / ' + total);
-        setProgress(idx / total * 0.5);  // first 50% = capture phase
-        setTimeout(captureNext, 0);
+        await new Promise(r => setTimeout(r, delay * 4));
+        rec.stop(); await done;
+        blob = new Blob(chunks, { type: mime });
+        files.push({ name: clip.name + '.' + ext, data: await _u8(blob), blob });
       }
-
-      gif.on('progress', p => {
-        setStatus('Encoding: ' + Math.round(p * 100) + '%');
-        setProgress(0.5 + p * 0.5);
-      });
-
-      gif.on('finished', blob => {
-        offerDownload(blob, 'animation_P' + period + '_' + startMin + 'm' + startSec + 's.gif',
-          'Done! ' + total + ' frames, ' + W + '×' + H + 'px.');
-        setProgress(0);
-        btnGen.disabled = false;
-        resizeCanvas();  // back to the on-screen layout and restore current frame
-      });
-
-      captureNext();
-    });
-  });
+    } finally {
+      btnVid.disabled = false;
+      resizeCanvas(); render(back);
+    }
+    if (files.length === 1) offerDownload(files[0].blob, files[0].name, 'Done! 1 clip exported.', target);
+    else offerDownload(_zipStore(files), 'event_clips_' + files.length + '.zip', 'Done! ' + files.length + ' clips in one zip.', target);
+  };
 
   // Initialise inputs to the current playback position on load
   _syncGifTimes();
